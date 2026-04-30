@@ -17,7 +17,7 @@ from fluentup.models import BandScore, EvaluationResult, Turn
 from fluentup.evaluator import LiveEvaluationPipeline, CRITERIA
 from fluentup.question_gen import QuestionGenerator
 from fluentup.store import FluentUpStore
-from fluentup.config import ACCENT_LABELS, DEFAULT_ACCENT
+from fluentup.config import ACCENT_LABELS, DEFAULT_ACCENT, PART1_QUESTIONS_PER_SESSION
 
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
@@ -307,6 +307,29 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
         threading.Thread(target=_worker, args=(c, partial, errors), daemon=True).start()
 
 
+def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
+    """Kick off background thread to generate the next Part 1 question via Gemini Live."""
+    qgen: QuestionGenerator | None = st.session_state.get("question_gen")
+    if qgen is None:
+        return
+    accent = st.session_state.get("examiner_accent", DEFAULT_ACCENT)
+    # Sentinel: ready=False means still generating
+    st.session_state["p1_next_q"] = {"ready": False, "text": "", "wav": b""}
+
+    def _worker() -> None:
+        try:
+            text, wav = asyncio.run(qgen.generate_next_part1_question(
+                prev_question=prev_question,
+                answer_wav=answer_wav,
+                accent=accent,
+            ))
+            st.session_state["p1_next_q"] = {"ready": True, "text": text, "wav": wav}
+        except Exception as exc:
+            st.session_state["p1_next_q"] = {"ready": True, "text": "", "wav": b"", "error": str(exc)}
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 def _render_streaming_eval(turn: Turn, part: int) -> bool:
     """
     Show per-criterion results as they arrive.
@@ -524,11 +547,12 @@ def _render_part1_loading() -> None:
             st.rerun()
         return
 
-    with st.spinner("Loading questions..."):
+    with st.spinner("Loading first question..."):
         try:
-            questions = _run_async(qgen.generate_part1_questions())
+            questions = _run_async(qgen.generate_part1_questions(n=1))
             sess.part1_questions = questions
             sess.part1_index = 0
+            st.session_state.pop("p1_next_q", None)
             sess.phase = "part1_idle"
             st.rerun()
         except Exception as e:
@@ -541,15 +565,19 @@ def _render_part1_idle() -> None:
     sess: ExamSession = st.session_state.session
     question = sess.current_part1_question()
     idx = sess.part1_index
-    total = len(sess.part1_questions)
+    max_q = PART1_QUESTIONS_PER_SESSION
 
     st.header("Part 1 — Introduction & Interview")
-    st.caption(f"Question {idx + 1} of {total}")
-    st.progress(idx / total)
+    st.caption(f"Question {idx + 1} (up to {max_q})")
+    st.progress(idx / max_q)
+
+    # Auto-play pre-generated question audio if available
+    next_wav = st.session_state.pop("p1_next_q_wav", None)
+    if next_wav:
+        st.audio(next_wav, format="audio/wav", autoplay=True)
 
     if question is None:
-        p1_turns = sess.part_turns(1)
-        sess.phase = "part1_summary" if p1_turns else "part1_summary"
+        sess.phase = "part1_summary"
         st.rerun()
         return
 
@@ -573,14 +601,19 @@ def _render_part1_idle() -> None:
                 sess.turns.append(Turn(part=1, question=question, audio_bytes=wav_bytes))
                 sess.part1_index += 1
                 _clear_streaming_state()
+                # Start next question generation in parallel with evaluation
+                if sess.part1_index < max_q:
+                    _start_next_question_gen(question, wav_bytes)
+                else:
+                    st.session_state.pop("p1_next_q", None)
                 sess.phase = "part1_feedback"
                 st.rerun()
     with col2:
         if st.button("Skip", key=f"p1_skip_{idx}", use_container_width=True):
             sess.part1_index += 1
-            if sess.part1_index >= total:
-                p1_turns = sess.part_turns(1)
-                sess.phase = "part1_summary" if not p1_turns else "part1_evaluating"
+            p1_turns = sess.part_turns(1)
+            if sess.part1_index >= max_q or not sess.current_part1_question():
+                sess.phase = "part1_evaluating" if p1_turns else "part1_summary"
             st.rerun()
     with col3:
         if st.button("End Part 1", key=f"p1_end_{idx}", use_container_width=True):
@@ -602,20 +635,17 @@ def _render_part1_feedback() -> None:
     # The turn that was just recorded (last unevaluated)
     unevaluated = [t for t in p1_turns if t.result is None]
     if not unevaluated:
-        # All evaluated, move forward
-        if sess.part1_index >= len(sess.part1_questions):
-            sess.phase = "part1_summary"
-        else:
-            sess.phase = "part1_idle"
+        # All evaluated unexpectedly — go forward
+        sess.phase = "part1_summary" if sess.part1_index >= PART1_QUESTIONS_PER_SESSION else "part1_idle"
         st.rerun()
         return
 
     turn = unevaluated[-1]  # the one just submitted
     idx_label = len(p1_turns)
-    total = len(sess.part1_questions)
+    max_q = PART1_QUESTIONS_PER_SESSION
 
     st.header("Part 1 — Examiner Feedback")
-    st.caption(f"Question {idx_label} of {total}")
+    st.caption(f"Question {idx_label} of up to {max_q}")
 
     st.markdown(
         f"<div style='border-left:4px solid #1565C0;border-radius:6px;padding:12px 20px;"
@@ -633,16 +663,39 @@ def _render_part1_feedback() -> None:
 
     if done:
         st.markdown("---")
-        if sess.part1_index >= total:
+        at_max = sess.part1_index >= max_q
+
+        if at_max:
             if st.button("View Part 1 Summary", type="primary", use_container_width=True):
                 _clear_streaming_state()
+                st.session_state.pop("p1_next_q", None)
                 sess.phase = "part1_summary"
                 st.rerun()
         else:
-            if st.button("Next Question →", type="primary", use_container_width=True):
-                _clear_streaming_state()
-                sess.phase = "part1_idle"
+            # Check if next question is ready
+            next_q: dict | None = st.session_state.get("p1_next_q")
+            if next_q is None or not next_q.get("ready", False):
+                st.info("Generating next question…")
+                time.sleep(0.6)
                 st.rerun()
+            else:
+                if next_q.get("error"):
+                    st.warning(f"Could not generate next question: {next_q['error']}")
+                if st.button("Next Question →", type="primary", use_container_width=True):
+                    # Append the generated question to the list
+                    q_text = next_q.get("text", "").strip()
+                    q_wav = next_q.get("wav", b"")
+                    if q_text:
+                        sess.part1_questions.append(q_text)
+                        if q_wav:
+                            st.session_state["p1_next_q_wav"] = q_wav
+                    st.session_state.pop("p1_next_q", None)
+                    _clear_streaming_state()
+                    if q_text:
+                        sess.phase = "part1_idle"
+                    else:
+                        sess.phase = "part1_summary"
+                    st.rerun()
 
 
 def _render_part1_evaluating() -> None:

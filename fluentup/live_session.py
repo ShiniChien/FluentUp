@@ -216,6 +216,40 @@ async def _gemini_live_once_attempt(
     )
 
 
+# ── Next question generation via Gemini Live ─────────────────────────────────
+
+async def gemini_live_next_question(
+    api_key: str,
+    prev_question: str,
+    answer_wav: bytes,
+    model: str = LIVE_MODEL,
+    accent_instruction: str = "",
+) -> tuple[str, bytes]:
+    """
+    Generate the next IELTS Part 1 question by sending the previous question (as
+    system context) and the candidate's audio answer to Gemini Live.
+
+    Returns (question_text, question_wav) where question_wav is a WAV file.
+    """
+    context = (f"{accent_instruction}\n\n" if accent_instruction.strip() else "")
+    system_prompt = (
+        context
+        + f'The previous IELTS Part 1 question you asked was: "{prev_question}"\n'
+        "Listen to the candidate\'s answer, then ask ONE natural follow-up IELTS Part 1 "
+        "question on a related or new everyday topic. "
+        "Speak ONLY the question itself — no greetings, no commentary, just the question."
+    )
+
+    _input_tr, output_tr, pcm = await gemini_live_once(
+        api_key=api_key,
+        system_prompt=system_prompt,
+        wav_bytes=answer_wav,
+        model=model,
+    )
+    wav = pcm_to_wav(pcm, OUTPUT_RATE) if pcm else b""
+    return output_tr.strip(), wav
+
+
 # ── TTS via Gemini Live AUDIO output ─────────────────────────────────────────
 
 async def gemini_live_speak(

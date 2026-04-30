@@ -13,7 +13,7 @@ from fluentup.prompts import (
     PART3_RANDOM_QUESTION_PROMPT,
 )
 from fluentup.models import CueCard
-from fluentup.live_session import gemini_live_speak
+from fluentup.live_session import gemini_live_speak, gemini_live_next_question
 from fluentup.config import (
     EXAMINER_ACCENTS,
     DEFAULT_ACCENT,
@@ -90,12 +90,29 @@ class QuestionGenerator:
         )
         return (resp.choices[0].message.content or "").strip()
 
-    async def generate_part1_questions(self, n: int = PART1_QUESTIONS_PER_SESSION) -> list[str]:
+    async def generate_part1_questions(self, n: int = 1) -> list[str]:
         """Pick n questions from the pre-built bank for a random topic.
-        No LLM call — instant and deterministic."""
+        Defaults to 1 (only the first question; subsequent ones are generated dynamically)."""
         topic = random.choice(list(QUESTION_BANK.keys()))
         pool = QUESTION_BANK[topic]
         return random.sample(pool, min(n, len(pool)))
+
+    async def generate_next_part1_question(
+        self,
+        prev_question: str,
+        answer_wav: bytes,
+        accent: str = DEFAULT_ACCENT,
+    ) -> tuple[str, bytes]:
+        """Generate Q(n+1) dynamically from Q(n) text + audio of A(n).
+        Returns (question_text, question_wav)."""
+        accent_instruction = EXAMINER_ACCENTS.get(accent, EXAMINER_ACCENTS[DEFAULT_ACCENT])
+        return await gemini_live_next_question(
+            api_key=self._api_key,
+            prev_question=prev_question,
+            answer_wav=answer_wav,
+            model=self._live_model,
+            accent_instruction=accent_instruction,
+        )
 
     async def generate_cue_card(self) -> CueCard:
         # Sample 1-3 Vietnamese seed words to diversify the topic
