@@ -137,7 +137,7 @@ def _hear_question(question: str, key: str) -> None:
     if qgen is None:
         return
     accent = st.session_state.get("examiner_accent", DEFAULT_ACCENT)
-    if st.button("Hear question", key=key):
+    if st.button("Hear question", key=key, use_container_width=True):
         with st.spinner("Generating audio..."):
             try:
                 wav = _run_async(qgen.speak_question(question, accent=accent))
@@ -154,28 +154,8 @@ def _render_sidebar(secrets: dict) -> None:
         st.caption("IELTS Speaking Practice")
 
         st.divider()
-        st.markdown("**API Status**")
-
-        if secrets["gemini_api_key"]:
-            st.success("Gemini: Connected")
-        else:
-            st.error("Gemini: Missing key")
-
-        if secrets["gemini_api_key"]:
-            st.success("Evaluator: Gemini Live (parallel)")
-        else:
-            st.warning("Evaluator: Missing Gemini key")
-
-        store: FluentUpStore | None = st.session_state.get("store")
-        if store is not None:
-            st.success("MongoDB: Connected")
-        else:
-            st.warning("MongoDB: Not configured")
-
-        st.divider()
         st.markdown("**Examiner Accent**")
         accent_options = list(ACCENT_LABELS.keys())
-        accent_display = [ACCENT_LABELS[a] for a in accent_options]
         current = st.session_state.get("examiner_accent", DEFAULT_ACCENT)
         selected_idx = accent_options.index(current) if current in accent_options else 0
         chosen = st.selectbox(
@@ -310,40 +290,40 @@ def _render_home() -> None:
 
     with col1:
         st.markdown(
-            "<div style='background:#E3F2FD;border-radius:10px;padding:20px;text-align:center'>"
+            "<div style='border:2px solid #1565C0;border-radius:10px;padding:20px;text-align:center'>"
             "<h3 style='color:#1565C0'>Part 1</h3>"
-            "<p>Introduction & Interview</p>"
-            "<p style='color:#555;font-size:0.9em'>10 questions on familiar topics</p>"
+            "<p>Introduction &amp; Interview</p>"
+            "<p style='font-size:0.9em'>10 questions on familiar topics</p>"
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("Start Part 1", use_container_width=True, key="start_p1"):
+        if st.button("Start Part 1", use_container_width=True, key="start_p1", use_container_width=True):
             st.session_state.session.phase = "part1_loading"
             st.rerun()
 
     with col2:
         st.markdown(
-            "<div style='background:#F3E5F5;border-radius:10px;padding:20px;text-align:center'>"
+            "<div style='border:2px solid #6A1B9A;border-radius:10px;padding:20px;text-align:center'>"
             "<h3 style='color:#6A1B9A'>Part 2</h3>"
             "<p>Individual Long Turn</p>"
-            "<p style='color:#555;font-size:0.9em'>Cue card, 1 min prep, 2 min speech</p>"
+            "<p style='font-size:0.9em'>Cue card, 1 min prep, 2 min speech</p>"
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("Start Part 2", use_container_width=True, key="start_p2"):
+        if st.button("Start Part 2", use_container_width=True, key="start_p2", use_container_width=True):
             st.session_state.session.phase = "part2_idle"
             st.rerun()
 
     with col3:
         st.markdown(
-            "<div style='background:#FFF3E0;border-radius:10px;padding:20px;text-align:center'>"
+            "<div style='border:2px solid #E65100;border-radius:10px;padding:20px;text-align:center'>"
             "<h3 style='color:#E65100'>Part 3</h3>"
             "<p>Two-way Discussion</p>"
-            "<p style='color:#555;font-size:0.9em'>5-6 abstract discussion questions</p>"
+            "<p style='font-size:0.9em'>5-6 abstract discussion questions</p>"
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("Start Part 3", use_container_width=True, key="start_p3"):
+        if st.button("Start Part 3", use_container_width=True, key="start_p3", use_container_width=True):
             st.session_state.session.phase = "part3_loading"
             st.rerun()
 
@@ -358,7 +338,7 @@ def _render_part1_loading() -> None:
 
     if qgen is None:
         st.error("Gemini API key required to generate questions.")
-        if st.button("Back to Home"):
+        if st.button("Back to Home", use_container_width=True):
             sess.phase = "home"
             st.rerun()
         return
@@ -372,7 +352,7 @@ def _render_part1_loading() -> None:
             st.rerun()
         except Exception as e:
             st.error(f"Failed to generate questions: {e}")
-            if st.button("Retry"):
+            if st.button("Retry", use_container_width=True):
                 st.rerun()
 
 
@@ -392,7 +372,7 @@ def _render_part1_idle() -> None:
         return
 
     st.markdown(
-        f"<div style='background:#E3F2FD;border-radius:10px;padding:24px;"
+        f"<div style='border-left:4px solid #1565C0;border-radius:6px;padding:20px 24px;"
         f"font-size:1.3em;font-weight:500;margin:20px 0'>{question}</div>",
         unsafe_allow_html=True,
     )
@@ -401,11 +381,11 @@ def _render_part1_idle() -> None:
 
     audio = st.audio_input("Record your answer", key=f"p1_audio_{idx}")
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([4, 1])
     with col1:
         if audio is not None:
             wav_bytes = audio.getvalue()
-            if len(wav_bytes) < 4000:  # ~0.1s at 16kHz mono
+            if len(wav_bytes) < 4000:
                 st.warning("Recording too short. Please try again.")
             else:
                 sess.turns.append(Turn(
@@ -416,7 +396,7 @@ def _render_part1_idle() -> None:
                 sess.phase = "part1_result"
                 st.rerun()
     with col2:
-        if st.button("Skip", key=f"p1_skip_{idx}"):
+        if st.button("Skip", key=f"p1_skip_{idx}", use_container_width=True):
             sess.part1_index += 1
             if sess.part1_index >= total:
                 sess.phase = "part1_summary"
@@ -454,7 +434,7 @@ def _render_part1_result() -> None:
                     turn.result = result
                 except Exception as e:
                     st.error(f"Evaluation failed: {e}")
-                    if st.button("Retry"):
+                    if st.button("Retry", use_container_width=True):
                         st.rerun()
                     return
             st.rerun()
@@ -469,7 +449,7 @@ def _render_part1_result() -> None:
     col1, col2 = st.columns(2)
     with col1:
         next_label = "Next Question" if (idx + 1) < total else "View Part 1 Summary"
-        if st.button(next_label, type="primary"):
+        if st.button(next_label, type="primary", use_container_width=True):
             sess.part1_index += 1
             if sess.part1_index >= total:
                 sess.phase = "part1_summary"
@@ -477,8 +457,7 @@ def _render_part1_result() -> None:
                 sess.phase = "part1_idle"
             st.rerun()
     with col2:
-        if st.button("Retry This Question"):
-            # Remove the last turn
+        if st.button("Retry This Question", use_container_width=True):
             sess.turns.pop()
             sess.phase = "part1_idle"
             st.rerun()
@@ -531,11 +510,11 @@ def _render_part1_summary() -> None:
     st.markdown("---")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Continue to Part 2", type="primary"):
+        if st.button("Continue to Part 2", type="primary", use_container_width=True):
             sess.phase = "part2_idle"
             st.rerun()
     with col2:
-        if st.button("Go to Part 3"):
+        if st.button("Go to Part 3", use_container_width=True):
             sess.phase = "part3_loading"
             st.rerun()
 
@@ -561,14 +540,13 @@ def _render_part2_idle() -> None:
                 st.rerun()
             except Exception as e:
                 st.error(f"Failed to generate cue card: {e}")
-                if st.button("Retry"):
+                if st.button("Retry", use_container_width=True):
                     st.rerun()
                 return
 
     cue = sess.part2_cue_card
     st.markdown(
-        f"<div style='background:#F3E5F5;border:2px solid #CE93D8;"
-        f"border-radius:12px;padding:24px;font-size:1.1em;margin:16px 0'>"
+        f"<div style='border:2px solid #6A1B9A;border-radius:12px;padding:24px;font-size:1.1em;margin:16px 0'>"
         f"<h3 style='color:#6A1B9A'>{cue.topic}</h3>"
         f"<p><b>You should say:</b></p>"
         f"<ul>{''.join(f'<li>{p}</li>' for p in cue.points)}</ul>"
@@ -581,12 +559,12 @@ def _render_part2_idle() -> None:
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Start Preparation", type="primary"):
+        if st.button("Start Preparation", type="primary", use_container_width=True):
             sess.prep_start_time = time.time()
             sess.phase = "part2_thinking"
             st.rerun()
     with col2:
-        if st.button("New Cue Card"):
+        if st.button("New Cue Card", use_container_width=True):
             sess.part2_cue_card = None
             sess.part2_topic = ""
             st.rerun()
@@ -620,7 +598,7 @@ def _render_part2_thinking() -> None:
 
     if cue:
         st.markdown(
-            f"<div style='background:#F3E5F5;border:2px solid #CE93D8;"
+            f"<div style='border:2px solid #6A1B9A;"
             f"border-radius:12px;padding:20px;font-size:1.05em'>"
             f"<h3 style='color:#6A1B9A'>{cue.topic}</h3>"
             f"<ul>{''.join(f'<li>{p}</li>' for p in cue.points)}</ul>"
@@ -631,7 +609,7 @@ def _render_part2_thinking() -> None:
 
     _prep_countdown_fragment()
 
-    if st.button("Start Speaking Early"):
+    if st.button("Start Speaking Early", use_container_width=True):
         sess.phase = "part2_recording"
         sess.speaking_start_time = time.time()
         st.rerun()
@@ -690,7 +668,7 @@ def _render_part2_recording() -> None:
             sess.phase = "part2_evaluating"
             st.rerun()
 
-    if st.button("Finish Speaking Early"):
+    if st.button("Finish Speaking Early", use_container_width=True):
         # Only process if we have an audio input already submitted
         if not sess.part_turns(2):
             st.info("Please record your answer first using the audio input above.")
@@ -706,7 +684,7 @@ def _render_part2_evaluating() -> None:
     p2_turns = sess.part_turns(2)
     if not p2_turns:
         st.error("No audio recorded for Part 2.")
-        if st.button("Go back"):
+        if st.button("Go back", use_container_width=True):
             sess.phase = "part2_recording"
             st.rerun()
         return
@@ -736,7 +714,7 @@ def _render_part2_evaluating() -> None:
             st.rerun()
         except Exception as e:
             st.error(f"Evaluation failed: {e}")
-            if st.button("Retry"):
+            if st.button("Retry", use_container_width=True):
                 st.rerun()
 
 
@@ -759,18 +737,18 @@ def _render_part2_result() -> None:
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("Continue to Part 3", type="primary"):
+        if st.button("Continue to Part 3", type="primary", use_container_width=True):
             # Pass Part 2 topic to Part 3
             sess.phase = "part3_loading"
             st.rerun()
     with col2:
-        if st.button("New Cue Card"):
+        if st.button("New Cue Card", use_container_width=True):
             sess.part2_cue_card = None
             sess.part2_topic = ""
             sess.phase = "part2_idle"
             st.rerun()
     with col3:
-        if st.button("Go to Summary"):
+        if st.button("Go to Summary", use_container_width=True):
             sess.phase = "session_summary"
             st.rerun()
 
@@ -798,7 +776,7 @@ def _render_part3_loading() -> None:
             st.rerun()
         except Exception as e:
             st.error(f"Failed to generate questions: {e}")
-            if st.button("Retry"):
+            if st.button("Retry", use_container_width=True):
                 st.rerun()
 
 
@@ -818,7 +796,7 @@ def _render_part3_idle() -> None:
         return
 
     st.markdown(
-        f"<div style='background:#FFF3E0;border-radius:10px;padding:24px;"
+        f"<div style='border-left:4px solid #E65100;border-radius:6px;padding:20px 24px;"
         f"font-size:1.3em;font-weight:500;margin:20px 0'>{question}</div>",
         unsafe_allow_html=True,
     )
@@ -842,7 +820,7 @@ def _render_part3_idle() -> None:
                 sess.phase = "part3_result"
                 st.rerun()
     with col2:
-        if st.button("Skip", key=f"p3_skip_{idx}"):
+        if st.button("Skip", key=f"p3_skip_{idx}", use_container_width=True):
             sess.part3_index += 1
             if sess.part3_index >= total:
                 sess.phase = "part3_summary"
@@ -880,7 +858,7 @@ def _render_part3_result() -> None:
                     turn.result = result
                 except Exception as e:
                     st.error(f"Evaluation failed: {e}")
-                    if st.button("Retry"):
+                    if st.button("Retry", use_container_width=True):
                         st.rerun()
                     return
             st.rerun()
@@ -894,7 +872,7 @@ def _render_part3_result() -> None:
     col1, col2 = st.columns(2)
     with col1:
         next_label = "Next Question" if (idx + 1) < total else "View Part 3 Summary"
-        if st.button(next_label, type="primary"):
+        if st.button(next_label, type="primary", use_container_width=True):
             sess.part3_index += 1
             if sess.part3_index >= total:
                 sess.phase = "part3_summary"
@@ -902,7 +880,7 @@ def _render_part3_result() -> None:
                 sess.phase = "part3_idle"
             st.rerun()
     with col2:
-        if st.button("Retry This Question"):
+        if st.button("Retry This Question", use_container_width=True):
             sess.turns.pop()
             sess.phase = "part3_idle"
             st.rerun()
@@ -948,7 +926,7 @@ def _render_part3_summary() -> None:
                     )
 
     st.markdown("---")
-    if st.button("View Session Summary", type="primary"):
+    if st.button("View Session Summary", type="primary", use_container_width=True):
         sess.phase = "session_summary"
         st.rerun()
 
@@ -963,7 +941,7 @@ def _render_session_summary() -> None:
 
     if not summary.turns:
         st.info("No answers recorded this session.")
-        if st.button("Start New Session"):
+        if st.button("Start New Session", use_container_width=True):
             st.session_state.session = ExamSession()
             st.rerun()
         return
@@ -1033,7 +1011,7 @@ def _render_session_summary() -> None:
         )
     with col2:
         if store is not None:
-            if st.button("Save to History", type="primary"):
+            if st.button("Save to History", type="primary", use_container_width=True):
                 with st.spinner("Saving to MongoDB..."):
                     try:
                         session_id = _run_async(store.save_session(summary))
@@ -1043,7 +1021,7 @@ def _render_session_summary() -> None:
         else:
             st.caption("MongoDB not configured — history unavailable")
     with col3:
-        if st.button("Start New Session"):
+        if st.button("Start New Session", use_container_width=True):
             st.session_state.session = ExamSession()
             st.rerun()
 
