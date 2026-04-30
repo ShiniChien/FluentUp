@@ -72,11 +72,15 @@ def _init_state(secrets: dict) -> None:
             st.session_state.question_gen = None
     if "store" not in st.session_state:
         if secrets["mongodb_uri"] and secrets["mongodb_username"]:
-            st.session_state.store = FluentUpStore(
-                uri=secrets["mongodb_uri"],
-                username=secrets["mongodb_username"],
-                password=secrets["mongodb_password"],
-            )
+            # Create Motor client on the background loop so its internal Futures
+            # are bound to the same loop used for all async operations.
+            async def _make_store():
+                return FluentUpStore(
+                    uri=secrets["mongodb_uri"],
+                    username=secrets["mongodb_username"],
+                    password=secrets["mongodb_password"],
+                )
+            st.session_state.store = _run_async(_make_store())
         else:
             st.session_state.store = None
 
