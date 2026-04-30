@@ -104,10 +104,24 @@ def _band_bar(band: float) -> str:
     return "█" * fill + "░" * empty
 
 
+_bg_loop: asyncio.AbstractEventLoop | None = None
+_bg_thread: threading.Thread | None = None
+
+
+def _get_bg_loop() -> asyncio.AbstractEventLoop:
+    global _bg_loop, _bg_thread
+    if _bg_loop is None or not _bg_loop.is_running():
+        _bg_loop = asyncio.new_event_loop()
+        _bg_thread = threading.Thread(target=_bg_loop.run_forever, daemon=True)
+        _bg_thread.start()
+    return _bg_loop
+
+
 def _run_async(coro):
     import concurrent.futures
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+    loop = _get_bg_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result()
 
 
 def _hear_question(question: str, key: str) -> None:
@@ -530,7 +544,8 @@ def _render_part1_idle() -> None:
     st.progress(idx / total)
 
     if question is None:
-        sess.phase = "part1_evaluating"
+        p1_turns = sess.part_turns(1)
+        sess.phase = "part1_summary" if p1_turns else "part1_summary"
         st.rerun()
         return
 
@@ -544,7 +559,7 @@ def _render_part1_idle() -> None:
 
     audio = st.audio_input("Record your answer", key=f"p1_audio_{idx}")
 
-    col1, col2 = st.columns([4, 1])
+    col1, col2, col3 = st.columns([4, 1, 1])
     with col1:
         if audio is not None:
             wav_bytes = audio.getvalue()
@@ -553,17 +568,77 @@ def _render_part1_idle() -> None:
             else:
                 sess.turns.append(Turn(part=1, question=question, audio_bytes=wav_bytes))
                 sess.part1_index += 1
-                if sess.part1_index >= total:
-                    _clear_streaming_state()
-                    sess.phase = "part1_evaluating"
+                _clear_streaming_state()
+                sess.phase = "part1_feedback"
                 st.rerun()
     with col2:
         if st.button("Skip", key=f"p1_skip_{idx}", use_container_width=True):
             sess.part1_index += 1
             if sess.part1_index >= total:
                 p1_turns = sess.part_turns(1)
-                sess.phase = "part1_evaluating" if p1_turns else "part1_summary"
+                sess.phase = "part1_summary" if not p1_turns else "part1_evaluating"
             st.rerun()
+    with col3:
+        if st.button("End Part 1", key=f"p1_end_{idx}", use_container_width=True):
+            p1_turns = sess.part_turns(1)
+            sess.phase = "part1_evaluating" if p1_turns else "part1_summary"
+            st.rerun()
+
+
+def _render_part1_feedback() -> None:
+    """Evaluate the most recent Part 1 answer and show feedback before next question."""
+    sess: ExamSession = st.session_state.session
+    p1_turns = sess.part_turns(1)
+
+    if not p1_turns:
+        sess.phase = "part1_idle"
+        st.rerun()
+        return
+
+    # The turn that was just recorded (last unevaluated)
+    unevaluated = [t for t in p1_turns if t.result is None]
+    if not unevaluated:
+        # All evaluated, move forward
+        if sess.part1_index >= len(sess.part1_questions):
+            sess.phase = "part1_summary"
+        else:
+            sess.phase = "part1_idle"
+        st.rerun()
+        return
+
+    turn = unevaluated[-1]  # the one just submitted
+    idx_label = len(p1_turns)
+    total = len(sess.part1_questions)
+
+    st.header("Part 1 — Examiner Feedback")
+    st.caption(f"Question {idx_label} of {total}")
+
+    st.markdown(
+        f"<div style='border-left:4px solid #1565C0;border-radius:6px;padding:12px 20px;"
+        f"font-size:1.1em;color:#555;margin:12px 0'><b>Question:</b> {turn.question}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Playback of user's answer
+    st.markdown("**Your answer:**")
+    st.audio(turn.audio_bytes, format="audio/wav")
+
+    st.markdown("---")
+
+    done = _render_streaming_eval(turn, part=1)
+
+    if done:
+        st.markdown("---")
+        if sess.part1_index >= total:
+            if st.button("View Part 1 Summary", type="primary", use_container_width=True):
+                _clear_streaming_state()
+                sess.phase = "part1_summary"
+                st.rerun()
+        else:
+            if st.button("Next Question →", type="primary", use_container_width=True):
+                _clear_streaming_state()
+                sess.phase = "part1_idle"
+                st.rerun()
 
 
 def _render_part1_evaluating() -> None:
@@ -1267,6 +1342,7 @@ def main() -> None:
         "home":              _render_home,
         "part1_loading":     _render_part1_loading,
         "part1_idle":        _render_part1_idle,
+        "part1_feedback":    _render_part1_feedback,
         "part1_evaluating":  _render_part1_evaluating,
         "part1_summary":     _render_part1_summary,
         "part2_idle":        _render_part2_idle,
