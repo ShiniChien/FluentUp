@@ -37,7 +37,7 @@ def _load_secrets() -> dict:
 
 # ── State init ────────────────────────────────────────────────────────────────
 
-_STATE_VERSION = 5
+_STATE_VERSION = 6
 
 
 def _init_state(secrets: dict) -> None:
@@ -105,16 +105,9 @@ def _band_bar(band: float) -> str:
 
 
 def _run_async(coro):
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result()
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 def _hear_question(question: str, key: str) -> None:
@@ -176,6 +169,14 @@ def _render_sidebar(secrets: dict) -> None:
 
         st.divider()
 
+        # Quick history in sidebar
+        store: FluentUpStore | None = st.session_state.get("store")
+        if store is not None:
+            st.markdown("**Session History**")
+            with st.expander("View / manage", expanded=False):
+                _render_sidebar_history(store)
+            st.divider()
+
         if phase != "home":
             if st.button("New Session", use_container_width=True):
                 st.session_state.session = ExamSession()
@@ -194,6 +195,65 @@ def _render_sidebar(secrets: dict) -> None:
 
 
 # ── Streaming evaluation ──────────────────────────────────────────────────────
+
+def _render_sidebar_history(store: FluentUpStore) -> None:
+    """Compact history list in sidebar with Load/Delete per row."""
+    try:
+        history = _run_async(store.get_recent_sessions(limit=10))
+    except Exception as e:
+        st.caption(f"Could not load: {e}")
+        return
+
+    if not history:
+        st.caption("No saved sessions yet.")
+        return
+
+    view_id: str | None = st.session_state.get("history_view_id")
+
+    for h in history:
+        sid = h["_id"]
+        ts = h.get("created_at", "")
+        if hasattr(ts, "strftime"):
+            ts = ts.strftime("%m-%d %H:%M")
+        overall = h.get("overall", 0.0)
+        color = _band_color(overall)
+
+        r1, r2 = st.columns([5, 2])
+        with r1:
+            st.markdown(
+                f"<div style='border-left:3px solid {color};padding:3px 8px;"
+                f"font-size:0.85em'>"
+                f"<b style='color:{color}'>{overall:.1f}</b> {ts}<br>"
+                f"<span style='color:#888'>FC:{h.get('avg_fc',0):.1f} "
+                f"LR:{h.get('avg_lr',0):.1f} "
+                f"GR:{h.get('avg_gr',0):.1f} "
+                f"PR:{h.get('avg_pronun',0):.1f}</span></div>",
+                unsafe_allow_html=True,
+            )
+        with r2:
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("📂", key=f"sb_load_{sid}", help="Load"):
+                    st.session_state["history_view_id"] = None if view_id == sid else sid
+                    st.rerun()
+            with c2:
+                if st.button("🗑", key=f"sb_del_{sid}", help="Delete"):
+                    try:
+                        _run_async(store.delete_session(sid))
+                        if view_id == sid:
+                            st.session_state.pop("history_view_id", None)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Delete failed: {e}")
+
+        if view_id == sid:
+            try:
+                doc = _run_async(store.get_session(sid))
+                if doc:
+                    _render_history_detail(doc)
+            except Exception as e:
+                st.caption(f"Load failed: {e}")
+
 
 def _clear_streaming_state() -> None:
     for key in ("eval_partial", "eval_auto_played", "eval_errors"):
@@ -263,17 +323,25 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
             item = partial[criterion]
             score: BandScore = item["score"]
             wav: bytes = item["wav"]
-            c = _band_color(score.band)
             with st.expander(
                 f"{criterion} — {score.band:.1f}  {_band_bar(score.band)}",
                 expanded=True,
             ):
                 if wav:
+                    # autoplay first appearance, then normal player
                     autoplay = criterion not in played
                     st.audio(wav, format="audio/wav", autoplay=autoplay)
                     if autoplay:
                         played.add(criterion)
                         st.session_state["eval_auto_played"] = played
+                elif score.feedback:
+                    # No audio from Gemini Live — show spoken evaluation as text
+                    st.markdown(
+                        f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
+                        f"padding:10px 14px;border-radius:4px;font-size:0.95em'>"
+                        f"{score.feedback}</div>",
+                        unsafe_allow_html=True,
+                    )
                 if score.weak_points:
                     st.markdown("**Weak points:**")
                     for wp in score.weak_points:
@@ -367,6 +435,9 @@ def _render_home() -> None:
     st.subheader("IELTS Speaking Practice")
     st.markdown("Choose a part to start practicing:")
 
+    sess: ExamSession = st.session_state.session
+    has_part2 = bool(sess.part2_topic)
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -379,33 +450,44 @@ def _render_home() -> None:
             unsafe_allow_html=True,
         )
         if st.button("Start Part 1", key="start_p1", use_container_width=True):
-            st.session_state.session.phase = "part1_loading"
+            sess.phase = "part1_loading"
             st.rerun()
 
     with col2:
+        p2_color = "#6A1B9A" if not has_part2 else "#9E9E9E"
         st.markdown(
-            "<div style='border:2px solid #6A1B9A;border-radius:10px;padding:20px;text-align:center'>"
-            "<h3 style='color:#6A1B9A'>Part 2</h3>"
+            f"<div style='border:2px solid {p2_color};border-radius:10px;padding:20px;text-align:center;opacity:{'1' if not has_part2 else '0.5'}'>"
+            f"<h3 style='color:{p2_color}'>Part 2</h3>"
             "<p>Individual Long Turn</p>"
             "<p style='font-size:0.9em'>Cue card, 1 min prep, 2 min speech</p>"
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("Start Part 2", key="start_p2", use_container_width=True):
-            st.session_state.session.phase = "part2_idle"
-            st.rerun()
+        st.button(
+            "Complete Part 1 first",
+            key="start_p2",
+            use_container_width=True,
+            disabled=True,
+        )
 
     with col3:
+        p3_color = "#E65100" if has_part2 else "#9E9E9E"
+        p3_hint = "5-6 abstract discussion questions" if has_part2 else "Complete Part 2 first to unlock"
         st.markdown(
-            "<div style='border:2px solid #E65100;border-radius:10px;padding:20px;text-align:center'>"
-            "<h3 style='color:#E65100'>Part 3</h3>"
+            f"<div style='border:2px solid {p3_color};border-radius:10px;padding:20px;text-align:center;opacity:{'1' if has_part2 else '0.5'}'>"
+            f"<h3 style='color:{p3_color}'>Part 3</h3>"
             "<p>Two-way Discussion</p>"
-            "<p style='font-size:0.9em'>5-6 abstract discussion questions</p>"
+            f"<p style='font-size:0.9em'>{p3_hint}</p>"
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("Start Part 3", key="start_p3", use_container_width=True):
-            st.session_state.session.phase = "part3_loading"
+        if st.button(
+            "Start Part 3" if has_part2 else "Locked",
+            key="start_p3",
+            use_container_width=True,
+            disabled=not has_part2,
+        ):
+            sess.phase = "part3_loading"
             st.rerun()
 
 
@@ -445,10 +527,10 @@ def _render_part1_idle() -> None:
 
     st.header("Part 1 — Introduction & Interview")
     st.caption(f"Question {idx + 1} of {total}")
-    st.progress((idx) / total)
+    st.progress(idx / total)
 
     if question is None:
-        sess.phase = "part1_summary"
+        sess.phase = "part1_evaluating"
         st.rerun()
         return
 
@@ -470,56 +552,81 @@ def _render_part1_idle() -> None:
                 st.warning("Recording too short. Please try again.")
             else:
                 sess.turns.append(Turn(part=1, question=question, audio_bytes=wav_bytes))
-                _clear_streaming_state()
-                sess.phase = "part1_result"
+                sess.part1_index += 1
+                if sess.part1_index >= total:
+                    _clear_streaming_state()
+                    sess.phase = "part1_evaluating"
                 st.rerun()
     with col2:
         if st.button("Skip", key=f"p1_skip_{idx}", use_container_width=True):
             sess.part1_index += 1
             if sess.part1_index >= total:
-                sess.phase = "part1_summary"
+                p1_turns = sess.part_turns(1)
+                sess.phase = "part1_evaluating" if p1_turns else "part1_summary"
             st.rerun()
 
 
-def _render_part1_result() -> None:
+def _render_part1_evaluating() -> None:
     sess: ExamSession = st.session_state.session
-
     p1_turns = sess.part_turns(1)
+
     if not p1_turns:
-        sess.phase = "part1_idle"
+        sess.phase = "part1_summary"
         st.rerun()
         return
 
-    turn = p1_turns[-1]
-    idx = sess.part1_index
-    total = len(sess.part1_questions)
-
-    st.header("Part 1 — Evaluation")
-    st.caption(f"Question {idx + 1} of {total}")
-
-    if turn.result is None:
-        if _render_streaming_eval(turn, part=1):
-            st.rerun()
+    unevaluated = [t for t in p1_turns if t.result is None]
+    if not unevaluated:
+        _clear_streaming_state()
+        sess.phase = "part1_summary"
+        st.rerun()
         return
 
-    _render_evaluation(turn.result)
+    turn = unevaluated[0]
+    done_count = len(p1_turns) - len(unevaluated)
 
-    st.markdown("---")
-    col1, col2 = st.columns(2)
-    with col1:
-        next_label = "Next Question" if (idx + 1) < total else "View Part 1 Summary"
-        if st.button(next_label, type="primary", use_container_width=True):
-            sess.part1_index += 1
-            if sess.part1_index >= total:
-                sess.phase = "part1_summary"
-            else:
-                sess.phase = "part1_idle"
-            st.rerun()
-    with col2:
-        if st.button("Retry This Question", use_container_width=True):
-            sess.turns.pop()
-            sess.phase = "part1_idle"
-            st.rerun()
+    st.header("Part 1 — Evaluating Answers")
+    st.caption(f"Answer {done_count + 1} of {len(p1_turns)}")
+    st.progress(done_count / len(p1_turns))
+
+    st.markdown(
+        f"<div style='border-left:4px solid #1565C0;border-radius:6px;padding:12px 20px;"
+        f"font-size:1.1em;color:#555;margin:12px 0'><b>Question:</b> {turn.question}</div>",
+        unsafe_allow_html=True,
+    )
+
+    if _render_streaming_eval(turn, part=1):
+        st.rerun()
+
+
+def _render_part_averages(evaluated: list) -> dict:
+    """Compute and render criterion average cards. Returns avgs dict."""
+    avgs = {}
+    for c in CRITERIA:
+        bands = [t.result.get_score(c).band for t in evaluated if t.result.get_score(c)]
+        avgs[c] = round(sum(bands) / len(bands) * 2) / 2 if bands else 0.0
+
+    overall = round(sum(avgs.values()) / len(avgs) * 2) / 2
+    st.markdown(
+        f"<div style='background:{_band_color(overall)};color:white;"
+        f"padding:12px;border-radius:8px;font-size:1.2em;font-weight:bold'>"
+        f"Average Band: {overall:.1f}</div>",
+        unsafe_allow_html=True,
+    )
+
+    cols = st.columns(4)
+    for i, (c, avg) in enumerate(avgs.items()):
+        with cols[i]:
+            color = _band_color(avg)
+            st.markdown(
+                f"<div style='text-align:center;border:2px solid {color};"
+                f"border-radius:8px;padding:10px'>"
+                f"<b style='color:{color}'>{c}</b><br>"
+                f"<span style='font-size:1.4em;font-weight:bold'>{avg:.1f}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+    return avgs
 
 
 def _render_part1_summary() -> None:
@@ -534,32 +641,19 @@ def _render_part1_summary() -> None:
         evaluated = [t for t in p1_turns if t.result]
 
         if evaluated:
-            avgs = {}
-            for c in CRITERIA:
-                bands = [t.result.get_score(c).band for t in evaluated if t.result.get_score(c)]
-                avgs[c] = round(sum(bands) / len(bands) * 2) / 2 if bands else 0.0
+            avgs = _render_part_averages(evaluated)
 
-            overall = round(sum(avgs.values()) / len(avgs) * 2) / 2
-
-            st.markdown(
-                f"<div style='background:{_band_color(overall)};color:white;"
-                f"padding:12px;border-radius:8px;font-size:1.2em;font-weight:bold'>"
-                f"Part 1 Average Band: {overall:.1f}</div>",
-                unsafe_allow_html=True,
-            )
-
-            cols = st.columns(4)
-            for i, (c, avg) in enumerate(avgs.items()):
-                with cols[i]:
-                    color = _band_color(avg)
-                    st.markdown(
-                        f"<div style='text-align:center;border:2px solid {color};"
-                        f"border-radius:8px;padding:10px'>"
-                        f"<b style='color:{color}'>{c}</b><br>"
-                        f"<span style='font-size:1.4em;font-weight:bold'>{avg:.1f}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
+            st.markdown("---")
+            st.markdown("#### Per-question breakdown")
+            for i, turn in enumerate(evaluated):
+                band = turn.result.overall_band
+                color = _band_color(band)
+                with st.expander(
+                    f"Q{i + 1}: {turn.question[:70]}{'…' if len(turn.question) > 70 else ''} — {band:.1f}",
+                    expanded=False,
+                ):
+                    st.audio(turn.audio_bytes, format="audio/wav")
+                    _render_evaluation(turn.result)
         else:
             st.info("No evaluated answers yet.")
 
@@ -762,6 +856,9 @@ def _render_part2_result() -> None:
     turn = p2_turns[-1]
     st.header("Part 2 — Result")
 
+    with st.expander("Your answer (playback)", expanded=False):
+        st.audio(turn.audio_bytes, format="audio/wav")
+
     _render_evaluation(turn.result)
 
     st.markdown("---")
@@ -797,7 +894,10 @@ def _render_part3_loading() -> None:
     with st.spinner("Generating discussion questions..."):
         try:
             questions = _run_async(
-                qgen.generate_part3_questions(part2_topic=sess.part2_topic)
+                qgen.generate_part3_questions(
+                    part2_topic=sess.part2_topic,
+                    part2_cue_card=sess.part2_cue_card,
+                )
             )
             sess.part3_questions = questions
             sess.part3_index = 0
@@ -874,6 +974,10 @@ def _render_part3_result() -> None:
             st.rerun()
         return
 
+    # Show user's own recording for self-review
+    with st.expander("Your answer (playback)", expanded=False):
+        st.audio(turn.audio_bytes, format="audio/wav")
+
     _render_evaluation(turn.result)
 
     st.markdown("---")
@@ -905,32 +1009,7 @@ def _render_part3_summary() -> None:
     else:
         evaluated = [t for t in p3_turns if t.result]
         if evaluated:
-            avgs = {}
-            for c in CRITERIA:
-                bands = [t.result.get_score(c).band for t in evaluated if t.result.get_score(c)]
-                avgs[c] = round(sum(bands) / len(bands) * 2) / 2 if bands else 0.0
-
-            overall = round(sum(avgs.values()) / len(avgs) * 2) / 2
-
-            st.markdown(
-                f"<div style='background:{_band_color(overall)};color:white;"
-                f"padding:12px;border-radius:8px;font-size:1.2em;font-weight:bold'>"
-                f"Part 3 Average Band: {overall:.1f}</div>",
-                unsafe_allow_html=True,
-            )
-
-            cols = st.columns(4)
-            for i, (c, avg) in enumerate(avgs.items()):
-                with cols[i]:
-                    color = _band_color(avg)
-                    st.markdown(
-                        f"<div style='text-align:center;border:2px solid {color};"
-                        f"border-radius:8px;padding:10px'>"
-                        f"<b style='color:{color}'>{c}</b><br>"
-                        f"<span style='font-size:1.4em;font-weight:bold'>{avg:.1f}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
+            _render_part_averages(evaluated)
 
     st.markdown("---")
     if st.button("View Session Summary", type="primary", use_container_width=True):
@@ -1188,7 +1267,7 @@ def main() -> None:
         "home":              _render_home,
         "part1_loading":     _render_part1_loading,
         "part1_idle":        _render_part1_idle,
-        "part1_result":      _render_part1_result,
+        "part1_evaluating":  _render_part1_evaluating,
         "part1_summary":     _render_part1_summary,
         "part2_idle":        _render_part2_idle,
         "part2_thinking":    _render_part2_thinking,

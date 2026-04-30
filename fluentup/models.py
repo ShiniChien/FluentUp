@@ -1,6 +1,5 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Literal
 
 
 @dataclass
@@ -8,7 +7,6 @@ class BandScore:
     criterion: str  # "FC", "LR", "GR", "Pronunciation"
     band: float     # 1.0 - 9.0, step 0.5
     feedback: str
-    examples: list[str]
     tips: list[str]
     weak_points: list[str] = field(default_factory=list)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from pathlib import Path
 
 import openai
@@ -49,10 +50,8 @@ def _seed_words(n: int = 2) -> list[str]:
 
 
 def _strip_fences(text: str) -> str:
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
+    text = re.sub(r"^```(?:json)?\s*", "", text.strip())
+    text = re.sub(r"\s*```$", "", text)
     return text.strip()
 
 
@@ -122,9 +121,16 @@ class QuestionGenerator:
                 explain="And explain why you found it particularly interesting.",
             )
 
-    async def generate_part3_questions(self, part2_topic: str, n: int = PART3_QUESTIONS_PER_SESSION) -> list[str]:
+    async def generate_part3_questions(self, part2_topic: str, n: int = PART3_QUESTIONS_PER_SESSION, part2_cue_card=None) -> list[str]:
         if part2_topic:
-            prompt = PART3_QUESTION_PROMPT.format(part2_topic=part2_topic, n=n)
+            points_str = ", ".join(part2_cue_card.points) if part2_cue_card else ""
+            explain_str = part2_cue_card.explain if part2_cue_card else ""
+            prompt = PART3_QUESTION_PROMPT.format(
+                part2_topic=part2_topic,
+                part2_points=points_str,
+                part2_explain=explain_str,
+                n=n,
+            )
         else:
             topic = random.choice(PART3_TOPICS)
             prompt = PART3_RANDOM_QUESTION_PROMPT.format(topic=topic, n=n)

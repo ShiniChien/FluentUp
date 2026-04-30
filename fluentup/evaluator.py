@@ -40,7 +40,7 @@ _PROMPTS = {
 _PARSE_PROMPT = """\
 You are a JSON formatter. The text below is a spoken IELTS evaluation for the criterion "{criterion}".
 Extract the assessment and return ONLY valid JSON with this exact schema — no markdown, no extra text:
-{{"band": <float 1.0-9.0 step 0.5>, "weak_points": ["<issue>"], "improvements": ["<actionable tip>"]}}
+{{"band": <float 1.0-9.0 step 0.5>, "weak_points": ["<issue>"], "tips": ["<actionable tip>"]}}
 
 Spoken evaluation:
 {text}"""
@@ -55,13 +55,12 @@ def _parse_band_score(criterion: str, raw: str) -> BandScore:
             criterion=criterion,
             band=float(data.get("band", 0.0)),
             feedback="",
-            examples=[],
-            tips=list(data.get("improvements", data.get("tips", []))),
+            tips=list(data.get("tips", [])),
             weak_points=list(data.get("weak_points", [])),
         )
     except Exception:
         return BandScore(criterion=criterion, band=0.0, feedback=raw[:300],
-                         examples=[], tips=[], weak_points=[])
+                         tips=[], weak_points=[])
 
 
 class LiveEvaluationPipeline:
@@ -121,32 +120,12 @@ class LiveEvaluationPipeline:
                 timeout=60.0,
             )
             score = await self._parse_with_llm(criterion, output_tr)
+            score.feedback = output_tr  # keep spoken text as text fallback for UI
             wav = pcm_to_wav(audio_pcm, OUTPUT_RATE) if audio_pcm else b""
             return score, input_tr, wav
         except Exception as exc:
             return BandScore(
                 criterion=criterion, band=0.0,
                 feedback=f"Evaluation failed: {exc}",
-                examples=[], tips=[], weak_points=[],
+                tips=[], weak_points=[],
             ), "", b""
-
-    async def evaluate(
-        self,
-        audio_bytes: bytes,
-        question:    str,
-        part:        int = 1,
-    ) -> EvaluationResult:
-        """Evaluate all 4 criteria in parallel (for non-streaming callers)."""
-        results = await asyncio.gather(
-            *[self.eval_one(c, audio_bytes, question, part) for c in CRITERIA],
-            return_exceptions=False,
-        )
-        scores     = [score for score, _, _ in results]
-        transcript = next((t for _, t, _ in results if t.strip()), "")
-        criterion_audio = {
-            CRITERIA[i]: wav
-            for i, (_, _, wav) in enumerate(results)
-            if wav
-        }
-        return EvaluationResult(transcript=transcript, scores=scores,
-                                criterion_audio=criterion_audio)

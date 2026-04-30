@@ -3,9 +3,8 @@ fluentup/store.py
 -----------------
 MongoDB persistence layer via motor (async).
 
-Collections:
-  sessions   — completed exam sessions (scores, transcripts, no audio bytes)
-  vocabulary — words saved during sessions for spaced-repetition review
+Collection:
+  sessions — completed exam sessions (scores, transcripts, no audio bytes)
 """
 from __future__ import annotations
 
@@ -27,10 +26,7 @@ class FluentUpStore:
             serverSelectionTimeoutMS=5000,
         )
         db = self._client["fluentup"]
-        self._sessions   = db["sessions"]
-        self._vocabulary = db["vocabulary"]
-
-    # ── Sessions ──────────────────────────────────────────────────────────────
+        self._sessions = db["sessions"]
 
     async def save_session(
         self, summary: ExamSummary, user_id: str = "default"
@@ -55,7 +51,6 @@ class FluentUpStore:
                             "criterion": s.criterion,
                             "band":      s.band,
                             "feedback":  s.feedback,
-                            "examples":  s.examples,
                             "tips":      s.tips,
                         }
                         for s in t.result.scores
@@ -91,46 +86,6 @@ class FluentUpStore:
     async def delete_session(self, session_id: str) -> bool:
         result = await self._sessions.delete_one({"_id": ObjectId(session_id)})
         return result.deleted_count > 0
-
-    # ── Vocabulary ────────────────────────────────────────────────────────────
-
-    async def add_word(
-        self,
-        word: str,
-        definition: str,
-        example: str = "",
-        user_id: str = "default",
-    ) -> None:
-        await self._vocabulary.update_one(
-            {"user_id": user_id, "word": word.lower()},
-            {
-                "$set": {
-                    "definition": definition,
-                    "example":    example,
-                    "updated_at": datetime.datetime.utcnow(),
-                },
-                "$setOnInsert": {
-                    "created_at": datetime.datetime.utcnow(),
-                    "review_count": 0,
-                },
-            },
-            upsert=True,
-        )
-
-    async def get_vocabulary(
-        self, user_id: str = "default", limit: int = 100
-    ) -> list[dict]:
-        cursor = self._vocabulary.find(
-            {"user_id": user_id},
-            sort=[("created_at", -1)],
-            limit=limit,
-        )
-        docs = await cursor.to_list(length=limit)
-        for d in docs:
-            d["_id"] = str(d["_id"])
-        return docs
-
-    # ── Health check ──────────────────────────────────────────────────────────
 
     async def ping(self) -> bool:
         try:

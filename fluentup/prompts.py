@@ -3,27 +3,34 @@ from __future__ import annotations
 
 # ── Question generation prompts ───────────────────────────────────────────────
 
-PART1_QUESTION_PROMPT = """You are an IELTS Speaking examiner.
-Generate {n} natural Part 1 questions on the topic: "{topic}".
-Topics must be from everyday life (home, work, hobbies, travel, food, technology).
-Questions should be conversational, clear, and vary in difficulty (easy to moderate).
-Return a JSON array of strings only.
-Example: ["Do you enjoy cooking?", "How often do you cook at home?"]"""
-
 CUE_CARD_PROMPT = """You are an IELTS Speaking examiner.
-Generate an IELTS Speaking Part 2 cue card on a random interesting topic.
+Generate an IELTS Speaking Part 2 cue card. The topic MUST be about exactly ONE of these broad categories:
+- A person (e.g. "Describe a person who has had a positive influence on you")
+- A physical object or possession (e.g. "Describe an object that is important to you")
+- An event or occasion (e.g. "Describe an event that brought people together")
+- An experience or activity (e.g. "Describe an experience that taught you something valuable")
+- A place (e.g. "Describe a place you enjoy going to")
+
+Rules:
+- The topic MUST be broad and open-ended so the candidate can speak from their own life
+- Do NOT create ultra-specific scenarios (e.g. NOT "Describe the time you visited an abandoned village at dusk")
+- The topic should start with "Describe a/an ..." referring to a general type, not a single fixed moment
+
 Return JSON with this exact schema:
 {{
-  "topic": "Describe a ...",
-  "points": ["What/who it was", "When/where it happened", "How it happened", "Why it was memorable"],
-  "explain": "And explain why this was important/interesting/memorable to you."
-}}
-Make the topic specific and engaging. Use past experiences or hypothetical scenarios."""
+  "topic": "Describe a/an ...",
+  "points": ["What/who it is", "When/where relevant", "What you do/did", "How it makes/made you feel"],
+  "explain": "And explain why this is/was meaningful or memorable to you."
+}}"""
 
 PART3_QUESTION_PROMPT = """You are an IELTS Speaking examiner.
-The candidate just completed Part 2 on the topic: "{part2_topic}".
-Generate {n} Part 3 discussion questions that expand on this theme with abstract ideas.
-Questions should require analysis, comparison, opinion, or speculation.
+The candidate just completed Part 2 with this cue card:
+Topic: {part2_topic}
+Points covered: {part2_points}
+{part2_explain}
+
+Generate {n} Part 3 discussion questions that expand on the themes above into broader social, cultural, or philosophical ideas.
+Questions must directly relate to the Part 2 topic and require analysis, comparison, opinion, or speculation.
 They should be significantly more abstract and challenging than Part 1 questions.
 Return a JSON array of strings only."""
 
@@ -40,7 +47,7 @@ Return a JSON array of strings only."""
 
 _JSON_SCHEMA = """
 Respond with ONLY valid JSON (no markdown, no extra text):
-{{"band": <float 1.0-9.0 step 0.5>, "feedback": "<2-3 sentence assessment>", "examples": ["<short quoted phrase from speech>"], "tips": ["<specific actionable improvement>"]}}"""
+{{"band": <float 1.0-9.0 step 0.5>, "weak_points": ["<issue>"], "tips": ["<specific actionable improvement>"]}}"""
 
 FC_LIVE_SYSTEM = (
     "You are an IELTS Speaking examiner evaluating ONLY Fluency & Coherence (FC).\n"
