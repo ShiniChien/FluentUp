@@ -88,6 +88,10 @@ class FluentUpStore:
             doc["_id"] = str(doc["_id"])
         return doc
 
+    async def delete_session(self, session_id: str) -> bool:
+        result = await self._sessions.delete_one({"_id": ObjectId(session_id)})
+        return result.deleted_count > 0
+
     # ── Vocabulary ────────────────────────────────────────────────────────────
 
     async def add_word(

@@ -10,6 +10,7 @@ class BandScore:
     feedback: str
     examples: list[str]
     tips: list[str]
+    weak_points: list[str] = field(default_factory=list)
 
 
 @dataclass

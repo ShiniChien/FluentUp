@@ -7,15 +7,14 @@ Run locally:
 from __future__ import annotations
 
 import asyncio
-import re
+import threading
 import time
 
 import streamlit as st
 
 from fluentup.exam_session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
-from fluentup.models import Turn, EvaluationResult
-from fluentup.transcriber import GeminiLiveTranscriber  # kept for optional future use
-from fluentup.evaluator import LiveEvaluationPipeline
+from fluentup.models import BandScore, EvaluationResult, Turn
+from fluentup.evaluator import LiveEvaluationPipeline, CRITERIA
 from fluentup.question_gen import QuestionGenerator
 from fluentup.store import FluentUpStore
 from fluentup.config import ACCENT_LABELS, DEFAULT_ACCENT
@@ -38,15 +37,12 @@ def _load_secrets() -> dict:
 
 # ── State init ────────────────────────────────────────────────────────────────
 
-# Bump this whenever the signature of any session-state object changes so that
-# Streamlit reloads stale cached instances without requiring a manual page refresh.
-_STATE_VERSION = 4
+_STATE_VERSION = 5
 
 
 def _init_state(secrets: dict) -> None:
     if st.session_state.get("_state_version") != _STATE_VERSION:
-        # Wipe all service objects so they are re-created with the current code.
-        for key in ("transcriber", "evaluator", "question_gen", "store"):
+        for key in ("evaluator", "question_gen", "store"):
             st.session_state.pop(key, None)
         st.session_state["_state_version"] = _STATE_VERSION
 
@@ -106,16 +102,6 @@ def _band_bar(band: float) -> str:
     fill = round(band / 9.0 * 20)
     empty = 20 - fill
     return "█" * fill + "░" * empty
-
-
-def _highlight_fillers(text: str) -> str:
-    fillers = r"\b(um|uh|er|like|you know)\b"
-    return re.sub(
-        fillers,
-        r'<span style="background:#FFF3CD;padding:0 3px;border-radius:3px">\1</span>',
-        text,
-        flags=re.IGNORECASE,
-    )
 
 
 def _run_async(coro):
@@ -193,9 +179,9 @@ def _render_sidebar(secrets: dict) -> None:
         if phase != "home":
             if st.button("New Session", use_container_width=True):
                 st.session_state.session = ExamSession()
+                _clear_streaming_state()
                 st.rerun()
 
-        # Part tips
         if "part1" in phase:
             st.markdown("**Part 1 Tips**")
             st.caption("- Answer in 2–3 sentences\n- Add a reason or example\n- Use present tenses for habits")
@@ -207,10 +193,129 @@ def _render_sidebar(secrets: dict) -> None:
             st.caption("- Give your opinion clearly\n- Use phrases like 'I believe...' / 'It seems to me...'\n- Compare and contrast ideas")
 
 
-# ── Evaluation display ────────────────────────────────────────────────────────
+# ── Streaming evaluation ──────────────────────────────────────────────────────
+
+def _clear_streaming_state() -> None:
+    for key in ("eval_partial", "eval_auto_played", "eval_errors"):
+        st.session_state.pop(key, None)
+
+
+def _start_streaming_eval(turn: Turn, part: int) -> None:
+    evaluator: LiveEvaluationPipeline | None = st.session_state.get("evaluator")
+    if evaluator is None:
+        return
+
+    st.session_state["eval_partial"] = {}
+    st.session_state["eval_auto_played"] = set()
+    st.session_state["eval_errors"] = {}
+
+    def _worker(criterion: str) -> None:
+        try:
+            score, _, wav = asyncio.run(evaluator.eval_one(
+                criterion=criterion,
+                audio_bytes=turn.audio_bytes,
+                question=turn.question,
+                part=part,
+            ))
+            st.session_state["eval_partial"][criterion] = {"score": score, "wav": wav}
+        except Exception as exc:
+            st.session_state["eval_errors"][criterion] = str(exc)
+
+    for c in CRITERIA:
+        threading.Thread(target=_worker, args=(c,), daemon=True).start()
+
+
+def _render_streaming_eval(turn: Turn, part: int) -> bool:
+    """
+    Show per-criterion results as they arrive.
+    Returns True when all 4 are done and turn.result has been assembled.
+    """
+    evaluator = st.session_state.get("evaluator")
+    if evaluator is None:
+        st.error("Gemini API key required for evaluation.")
+        return False
+
+    partial = st.session_state.get("eval_partial")
+    if partial is None:
+        _start_streaming_eval(turn, part)
+        st.rerun()
+        return False
+
+    errors: dict = st.session_state.get("eval_errors", {})
+    played: set = st.session_state.get("eval_auto_played", set())
+
+    done_count = len(partial) + len(errors)
+    total = len(CRITERIA)
+
+    if done_count < total:
+        st.markdown(f"**Evaluating… ({done_count}/{total} criteria complete)**")
+        st.progress(done_count / total)
+    else:
+        st.markdown(f"**Evaluation complete ({total}/{total})**")
+        st.progress(1.0)
+
+    for criterion in CRITERIA:
+        if criterion in partial:
+            item = partial[criterion]
+            score: BandScore = item["score"]
+            wav: bytes = item["wav"]
+            c = _band_color(score.band)
+            with st.expander(
+                f"{criterion} — {score.band:.1f}  {_band_bar(score.band)}",
+                expanded=True,
+            ):
+                if wav:
+                    autoplay = criterion not in played
+                    st.audio(wav, format="audio/wav", autoplay=autoplay)
+                    if autoplay:
+                        played.add(criterion)
+                        st.session_state["eval_auto_played"] = played
+                if score.weak_points:
+                    st.markdown("**Weak points:**")
+                    for wp in score.weak_points:
+                        st.markdown(f"- {wp}")
+                if score.tips:
+                    st.markdown("**Improvements:**")
+                    for tip in score.tips:
+                        st.markdown(f"- {tip}")
+        elif criterion in errors:
+            with st.expander(f"{criterion} — Error", expanded=True):
+                st.error(errors[criterion])
+
+    if done_count < total:
+        time.sleep(0.8)
+        st.rerun()
+        return False
+
+    # All done — assemble EvaluationResult and save to turn
+    scores = []
+    criterion_audio: dict[str, bytes] = {}
+    for criterion in CRITERIA:
+        if criterion in partial:
+            item = partial[criterion]
+            scores.append(item["score"])
+            if item["wav"]:
+                criterion_audio[criterion] = item["wav"]
+        else:
+            scores.append(BandScore(
+                criterion=criterion, band=0.0,
+                feedback=errors.get(criterion, "Failed"),
+                examples=[], tips=[], weak_points=[],
+            ))
+
+    turn.result = EvaluationResult(
+        transcript="",
+        scores=scores,
+        criterion_audio=criterion_audio,
+    )
+    _clear_streaming_state()
+    return True
+
+
+# ── Evaluation summary display ────────────────────────────────────────────────
 
 def _render_evaluation(result: EvaluationResult) -> None:
-    st.markdown("#### Evaluation")
+    st.markdown("#### Evaluation Summary")
 
     overall = result.overall_band
     color = _band_color(overall)
@@ -221,62 +326,34 @@ def _render_evaluation(result: EvaluationResult) -> None:
         unsafe_allow_html=True,
     )
 
-    cols = st.columns(2)
+    cols = st.columns(4)
     for i, score in enumerate(result.scores):
-        with cols[i % 2]:
+        with cols[i]:
             c = _band_color(score.band)
             st.markdown(
-                f"<div style='border:1px solid {c};border-radius:6px;padding:8px;margin:4px 0'>"
-                f"<b style='color:{c}'>{score.criterion}</b>&nbsp;&nbsp;"
-                f"<span style='font-size:1.1em;font-weight:bold'>{score.band:.1f}</span><br>"
-                f"<span style='font-family:monospace;font-size:0.8em'>{_band_bar(score.band)}</span>"
+                f"<div style='text-align:center;border:2px solid {c};"
+                f"border-radius:8px;padding:10px'>"
+                f"<b style='color:{c}'>{score.criterion}</b><br>"
+                f"<span style='font-size:1.4em;font-weight:bold'>{score.band:.1f}</span><br>"
+                f"<span style='font-family:monospace;font-size:0.7em'>{_band_bar(score.band)}</span>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
 
-    st.markdown("---")
-    for score in result.scores:
-        c = _band_color(score.band)
-        with st.expander(f"{score.criterion} — {score.band:.1f}  {_band_bar(score.band)}"):
-            # Play examiner's spoken feedback if available
-            wav = result.criterion_audio.get(score.criterion)
-            if wav:
-                st.audio(wav, format="audio/wav")
-            if score.feedback:
-                st.markdown(score.feedback)
-            if score.examples:
-                st.markdown("**Examples from your speech:**")
-                for ex in score.examples:
-                    st.markdown(f'> "{ex}"')
-            if score.tips:
-                st.markdown("**Improvement tips:**")
-                for tip in score.tips:
-                    st.markdown(f"- {tip}")
-
-    # Copy feedback button
     feedback_text = f"Overall Band: {overall:.1f}\n\n"
     for score in result.scores:
-        feedback_text += f"{score.criterion}: {score.band:.1f}\n{score.feedback}\n"
+        feedback_text += f"{score.criterion}: {score.band:.1f}\n"
+        if score.weak_points:
+            feedback_text += "Weak points: " + "; ".join(score.weak_points) + "\n"
         if score.tips:
             feedback_text += "Tips: " + "; ".join(score.tips) + "\n"
         feedback_text += "\n"
     st.download_button(
-        "Copy/Download Feedback",
+        "Download Feedback",
         data=feedback_text,
         file_name="feedback.txt",
         mime="text/plain",
     )
-
-
-def _render_transcript(transcript: str) -> None:
-    st.markdown("#### Your Transcript")
-    highlighted = _highlight_fillers(transcript)
-    st.markdown(
-        f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
-        f"padding:12px 16px;border-radius:4px;line-height:1.6'>{highlighted}</div>",
-        unsafe_allow_html=True,
-    )
-    st.caption("Orange highlights = filler words (um, uh, er, like, you know)")
 
 
 # ── Part selector (home) ──────────────────────────────────────────────────────
@@ -388,11 +465,8 @@ def _render_part1_idle() -> None:
             if len(wav_bytes) < 4000:
                 st.warning("Recording too short. Please try again.")
             else:
-                sess.turns.append(Turn(
-                    part=1,
-                    question=question,
-                    audio_bytes=wav_bytes,
-                ))
+                sess.turns.append(Turn(part=1, question=question, audio_bytes=wav_bytes))
+                _clear_streaming_state()
                 sess.phase = "part1_result"
                 st.rerun()
     with col2:
@@ -405,7 +479,6 @@ def _render_part1_idle() -> None:
 
 def _render_part1_result() -> None:
     sess: ExamSession = st.session_state.session
-    evaluator: LiveEvaluationPipeline = st.session_state.evaluator
 
     p1_turns = sess.part_turns(1)
     if not p1_turns:
@@ -417,32 +490,14 @@ def _render_part1_result() -> None:
     idx = sess.part1_index
     total = len(sess.part1_questions)
 
-    st.header("Part 1 — Result")
+    st.header("Part 1 — Evaluation")
     st.caption(f"Question {idx + 1} of {total}")
 
     if turn.result is None:
-        if evaluator is None:
-            st.error("Gemini API key required for evaluation.")
-        else:
-            with st.spinner("Evaluating (4 criteria in parallel)..."):
-                try:
-                    result = _run_async(evaluator.evaluate(
-                        audio_bytes=turn.audio_bytes,
-                        question=turn.question,
-                        part=1,
-                    ))
-                    turn.result = result
-                except Exception as e:
-                    st.error(f"Evaluation failed: {e}")
-                    if st.button("Retry", use_container_width=True):
-                        st.rerun()
-                    return
+        if _render_streaming_eval(turn, part=1):
             st.rerun()
         return
 
-    # Display result
-    _render_transcript(turn.result.transcript)
-    st.markdown("---")
     _render_evaluation(turn.result)
 
     st.markdown("---")
@@ -472,14 +527,11 @@ def _render_part1_summary() -> None:
     if not p1_turns:
         st.info("No answers recorded for Part 1.")
     else:
-        summary = sess.build_summary()
-        # Calculate part 1 specific averages
         evaluated = [t for t in p1_turns if t.result]
 
         if evaluated:
-            criteria = ["FC", "LR", "GR", "Pronunciation"]
             avgs = {}
-            for c in criteria:
+            for c in CRITERIA:
                 bands = [t.result.get_score(c).band for t in evaluated if t.result.get_score(c)]
                 avgs[c] = round(sum(bands) / len(bands) * 2) / 2 if bands else 0.0
 
@@ -576,11 +628,6 @@ def _prep_countdown_fragment():
     remaining = sess.prep_remaining()
 
     progress_val = (PREP_SECONDS - remaining) / PREP_SECONDS
-    color = "normal"
-    if remaining <= 10:
-        color = "error"
-    elif remaining <= 20:
-        color = "warning"
 
     st.progress(progress_val, text=f"Preparation time: {remaining}s remaining")
 
@@ -625,16 +672,13 @@ def _speak_countdown_fragment():
     secs = remaining % 60
 
     if remaining <= 10:
-        bar_text = f"Speaking time: {mins}:{secs:02d} remaining"
-        st.progress(progress_val, text=bar_text)
+        st.progress(progress_val, text=f"Speaking time: {mins}:{secs:02d} remaining")
         st.error(f"Almost done! {remaining}s left")
     elif remaining <= 30:
-        bar_text = f"Speaking time: {mins}:{secs:02d} remaining"
-        st.progress(progress_val, text=bar_text)
+        st.progress(progress_val, text=f"Speaking time: {mins}:{secs:02d} remaining")
         st.warning(f"Wrap up soon — {remaining}s left")
     else:
-        bar_text = f"Speaking time: {mins}:{secs:02d} remaining"
-        st.progress(progress_val, text=bar_text)
+        st.progress(progress_val, text=f"Speaking time: {mins}:{secs:02d} remaining")
 
     if remaining == 0:
         sess.phase = "part2_evaluating"
@@ -665,11 +709,11 @@ def _render_part2_recording() -> None:
         else:
             question = cue.topic if cue else "Part 2 speech"
             sess.turns.append(Turn(part=2, question=question, audio_bytes=wav_bytes))
+            _clear_streaming_state()
             sess.phase = "part2_evaluating"
             st.rerun()
 
     if st.button("Finish Speaking Early", use_container_width=True):
-        # Only process if we have an audio input already submitted
         if not sess.part_turns(2):
             st.info("Please record your answer first using the audio input above.")
         else:
@@ -679,7 +723,6 @@ def _render_part2_recording() -> None:
 
 def _render_part2_evaluating() -> None:
     sess: ExamSession = st.session_state.session
-    evaluator: LiveEvaluationPipeline = st.session_state.evaluator
 
     p2_turns = sess.part_turns(2)
     if not p2_turns:
@@ -696,26 +739,11 @@ def _render_part2_evaluating() -> None:
         st.rerun()
         return
 
-    st.header("Part 2 — Processing")
+    st.header("Part 2 — Evaluation")
 
-    if evaluator is None:
-        st.error("Gemini API key required for evaluation.")
-        return
-
-    with st.spinner("Evaluating your speech (4 criteria in parallel)..."):
-        try:
-            result = _run_async(evaluator.evaluate(
-                audio_bytes=turn.audio_bytes,
-                question=turn.question,
-                part=2,
-            ))
-            turn.result = result
-            sess.phase = "part2_result"
-            st.rerun()
-        except Exception as e:
-            st.error(f"Evaluation failed: {e}")
-            if st.button("Retry", use_container_width=True):
-                st.rerun()
+    if _render_streaming_eval(turn, part=2):
+        sess.phase = "part2_result"
+        st.rerun()
 
 
 def _render_part2_result() -> None:
@@ -730,15 +758,12 @@ def _render_part2_result() -> None:
     turn = p2_turns[-1]
     st.header("Part 2 — Result")
 
-    _render_transcript(turn.result.transcript)
-    st.markdown("---")
     _render_evaluation(turn.result)
 
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("Continue to Part 3", type="primary", use_container_width=True):
-            # Pass Part 2 topic to Part 3
             sess.phase = "part3_loading"
             st.rerun()
     with col2:
@@ -812,11 +837,8 @@ def _render_part3_idle() -> None:
             if len(wav_bytes) < 4000:
                 st.warning("Recording too short. Please try again.")
             else:
-                sess.turns.append(Turn(
-                    part=3,
-                    question=question,
-                    audio_bytes=wav_bytes,
-                ))
+                sess.turns.append(Turn(part=3, question=question, audio_bytes=wav_bytes))
+                _clear_streaming_state()
                 sess.phase = "part3_result"
                 st.rerun()
     with col2:
@@ -829,7 +851,6 @@ def _render_part3_idle() -> None:
 
 def _render_part3_result() -> None:
     sess: ExamSession = st.session_state.session
-    evaluator: LiveEvaluationPipeline = st.session_state.evaluator
 
     p3_turns = sess.part_turns(3)
     if not p3_turns:
@@ -841,31 +862,14 @@ def _render_part3_result() -> None:
     idx = sess.part3_index
     total = len(sess.part3_questions)
 
-    st.header("Part 3 — Result")
+    st.header("Part 3 — Evaluation")
     st.caption(f"Question {idx + 1} of {total}")
 
     if turn.result is None:
-        if evaluator is None:
-            st.error("Gemini API key required for evaluation.")
-        else:
-            with st.spinner("Evaluating (4 criteria in parallel)..."):
-                try:
-                    result = _run_async(evaluator.evaluate(
-                        audio_bytes=turn.audio_bytes,
-                        question=turn.question,
-                        part=3,
-                    ))
-                    turn.result = result
-                except Exception as e:
-                    st.error(f"Evaluation failed: {e}")
-                    if st.button("Retry", use_container_width=True):
-                        st.rerun()
-                    return
+        if _render_streaming_eval(turn, part=3):
             st.rerun()
         return
 
-    _render_transcript(turn.result.transcript)
-    st.markdown("---")
     _render_evaluation(turn.result)
 
     st.markdown("---")
@@ -897,9 +901,8 @@ def _render_part3_summary() -> None:
     else:
         evaluated = [t for t in p3_turns if t.result]
         if evaluated:
-            criteria = ["FC", "LR", "GR", "Pronunciation"]
             avgs = {}
-            for c in criteria:
+            for c in CRITERIA:
                 bands = [t.result.get_score(c).band for t in evaluated if t.result.get_score(c)]
                 avgs[c] = round(sum(bands) / len(bands) * 2) / 2 if bands else 0.0
 
@@ -956,7 +959,6 @@ def _render_session_summary() -> None:
             unsafe_allow_html=True,
         )
 
-    # Per-part summary
     cols = st.columns(4)
     labels = ["FC", "LR", "GR", "Pronunciation"]
     avgs = [summary.avg_fc, summary.avg_lr, summary.avg_gr, summary.avg_pronun]
@@ -974,10 +976,11 @@ def _render_session_summary() -> None:
                     unsafe_allow_html=True,
                 )
             else:
-                st.markdown(f"<div style='text-align:center;padding:12px'><b>{label}</b><br>—</div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='text-align:center;padding:12px'><b>{label}</b><br>—</div>",
+                    unsafe_allow_html=True,
+                )
 
-    # Parts breakdown
-    st.markdown("---")
     parts_done = []
     if sess.part_turns(1):
         parts_done.append(f"Part 1 ({len(sess.part_turns(1))} answers)")
@@ -988,7 +991,6 @@ def _render_session_summary() -> None:
     if parts_done:
         st.caption("Parts completed: " + " | ".join(parts_done))
 
-    # Top improvement areas
     if any(a > 0 for a in avgs):
         st.markdown("**Top Areas to Improve:**")
         areas = sorted(zip(labels, avgs), key=lambda x: x[1])
@@ -998,7 +1000,6 @@ def _render_session_summary() -> None:
 
     st.markdown("---")
 
-    # Save report
     report = _build_report(sess)
     store: FluentUpStore | None = st.session_state.get("store")
     col1, col2, col3 = st.columns(3)
@@ -1029,31 +1030,105 @@ def _render_session_summary() -> None:
     if store is not None:
         st.markdown("---")
         with st.expander("Session History", expanded=False):
-            try:
-                history = _run_async(store.get_recent_sessions(limit=10))
-                if not history:
-                    st.caption("No saved sessions yet.")
-                else:
-                    for h in history:
-                        ts = h.get("created_at", "")
-                        if hasattr(ts, "strftime"):
-                            ts = ts.strftime("%Y-%m-%d %H:%M")
-                        overall = h.get("overall", 0)
-                        color = _band_color(overall)
-                        st.markdown(
-                            f"<div style='border-left:4px solid {color};"
-                            f"padding:6px 12px;margin:4px 0'>"
-                            f"<b style='color:{color}'>{overall:.1f}</b> — {ts} &nbsp;"
-                            f"FC:{h.get('avg_fc',0):.1f} "
-                            f"LR:{h.get('avg_lr',0):.1f} "
-                            f"GR:{h.get('avg_gr',0):.1f} "
-                            f"PR:{h.get('avg_pronun',0):.1f}"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
-            except Exception as e:
-                st.error(f"Could not load history: {e}")
+            _render_history(store)
 
+
+def _render_history(store: FluentUpStore) -> None:
+    try:
+        history = _run_async(store.get_recent_sessions(limit=10))
+    except Exception as e:
+        st.error(f"Could not load history: {e}")
+        return
+
+    if not history:
+        st.caption("No saved sessions yet.")
+        return
+
+    # Track which session to show in detail
+    view_id: str | None = st.session_state.get("history_view_id")
+
+    for h in history:
+        sid = h["_id"]
+        ts = h.get("created_at", "")
+        if hasattr(ts, "strftime"):
+            ts = ts.strftime("%Y-%m-%d %H:%M")
+        overall = h.get("overall", 0.0)
+        color = _band_color(overall)
+
+        info_col, load_col, del_col = st.columns([7, 1, 1])
+        with info_col:
+            st.markdown(
+                f"<div style='border-left:4px solid {color};padding:6px 12px;margin:2px 0'>"
+                f"<b style='color:{color}'>{overall:.1f}</b> — {ts} &nbsp; "
+                f"FC:{h.get('avg_fc', 0):.1f} "
+                f"LR:{h.get('avg_lr', 0):.1f} "
+                f"GR:{h.get('avg_gr', 0):.1f} "
+                f"PR:{h.get('avg_pronun', 0):.1f}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with load_col:
+            if st.button("Load", key=f"hist_load_{sid}", use_container_width=True):
+                if view_id == sid:
+                    st.session_state.pop("history_view_id", None)
+                else:
+                    st.session_state["history_view_id"] = sid
+                st.rerun()
+        with del_col:
+            if st.button("Delete", key=f"hist_del_{sid}", use_container_width=True):
+                try:
+                    _run_async(store.delete_session(sid))
+                    if view_id == sid:
+                        st.session_state.pop("history_view_id", None)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Delete failed: {e}")
+
+        # Show detail for the loaded session directly below its row
+        if view_id == sid:
+            try:
+                doc = _run_async(store.get_session(sid))
+                if doc:
+                    _render_history_detail(doc)
+            except Exception as e:
+                st.error(f"Could not load session: {e}")
+
+
+def _render_history_detail(doc: dict) -> None:
+    """Show a read-only score breakdown for a saved session."""
+    with st.container():
+        st.markdown("---")
+        overall = doc.get("overall", 0.0)
+        color = _band_color(overall)
+        st.markdown(
+            f"<div style='background:{color};color:white;padding:8px 14px;"
+            f"border-radius:6px;font-weight:bold;margin-bottom:8px'>"
+            f"Overall: {overall:.1f}</div>",
+            unsafe_allow_html=True,
+        )
+
+        turns = doc.get("turns", [])
+        for turn in turns:
+            part = turn.get("part", "?")
+            question = turn.get("question", "")
+            band = turn.get("overall_band", 0.0)
+            c = _band_color(band)
+            with st.expander(f"Part {part} — {question[:60]} [{band:.1f}]"):
+                for score in turn.get("scores", []):
+                    crit = score.get("criterion", "")
+                    b = score.get("band", 0.0)
+                    tips = score.get("tips", [])
+                    sc = _band_color(b)
+                    st.markdown(
+                        f"**{crit}** <span style='color:{sc}'>{b:.1f}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    for tip in tips:
+                        st.markdown(f"  - {tip}")
+        st.markdown("---")
+
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
 
 def _improvement_tip(criterion: str) -> str:
     tips = {
@@ -1077,10 +1152,13 @@ def _build_report(sess: ExamSession) -> str:
     for t in summary.turns:
         lines.append(f"Part {t.part} — {t.question}")
         if t.result:
-            lines.append(f"  Transcript: {t.result.transcript[:200]}...")
             lines.append(f"  Overall: {t.result.overall_band:.1f}")
             for score in t.result.scores:
-                lines.append(f"  {score.criterion}: {score.band:.1f} — {score.feedback[:100]}")
+                lines.append(f"  {score.criterion}: {score.band:.1f}")
+                if score.weak_points:
+                    lines.append("  Weak: " + "; ".join(score.weak_points))
+                if score.tips:
+                    lines.append("  Tips: " + "; ".join(score.tips))
         lines.append("")
     return "\n".join(lines)
 
@@ -1094,7 +1172,6 @@ def main() -> None:
     _init_state(secrets)
     _render_sidebar(secrets)
 
-    # Guard: need at least Gemini key
     if not secrets["gemini_api_key"]:
         st.error("Add `GEMINI_API_KEY` to `.streamlit/secrets.toml` to start.")
         st.info("The app requires Gemini for audio transcription and question generation.")
