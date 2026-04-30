@@ -13,9 +13,9 @@ import time
 import streamlit as st
 
 from fluentup.exam_session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
-from fluentup.models import Turn, BandScore, EvaluationResult
-from fluentup.transcriber import GeminiTranscriber
-from fluentup.evaluator import EvaluationPipeline
+from fluentup.models import Turn, EvaluationResult
+from fluentup.transcriber import GeminiLiveTranscriber
+from fluentup.evaluator import LiveEvaluationPipeline
 from fluentup.question_gen import QuestionGenerator
 from fluentup.store import FluentUpStore
 
@@ -24,14 +24,11 @@ from fluentup.store import FluentUpStore
 
 def _load_secrets() -> dict:
     return {
-        "gemini_api_key":      st.secrets.get("GEMINI_API_KEY", ""),
-        "gemini_model":        st.secrets.get("GEMINI_MODEL", "gemini-2.0-flash"),
-        "openrouter_api_key":  st.secrets.get("OPENROUTER_API_KEY", ""),
-        "openrouter_base_url": st.secrets.get("OPENROUTER_BASE_URL", ""),
-        "openrouter_model":    st.secrets.get("OPENROUTER_MODEL", ""),
-        "mongodb_uri":         st.secrets.get("MONGODB_URI", ""),
-        "mongodb_username":    st.secrets.get("MONGODB_USERNAME", ""),
-        "mongodb_password":    st.secrets.get("MONGODB_PASSWORD", ""),
+        "gemini_api_key": st.secrets.get("GEMINI_API_KEY", ""),
+        "live_model":     st.secrets.get("GEMINI_LIVE_MODEL", "models/gemini-2.0-flash-live-001"),
+        "mongodb_uri":    st.secrets.get("MONGODB_URI", ""),
+        "mongodb_username": st.secrets.get("MONGODB_USERNAME", ""),
+        "mongodb_password": st.secrets.get("MONGODB_PASSWORD", ""),
     }
 
 
@@ -42,18 +39,17 @@ def _init_state(secrets: dict) -> None:
         st.session_state.session = ExamSession()
     if "transcriber" not in st.session_state:
         if secrets["gemini_api_key"]:
-            st.session_state.transcriber = GeminiTranscriber(
+            st.session_state.transcriber = GeminiLiveTranscriber(
                 api_key=secrets["gemini_api_key"],
-                model=secrets["gemini_model"],
+                model=secrets["live_model"],
             )
         else:
             st.session_state.transcriber = None
     if "evaluator" not in st.session_state:
-        if secrets["openrouter_api_key"] and secrets["openrouter_base_url"]:
-            st.session_state.evaluator = EvaluationPipeline(
-                base_url=secrets["openrouter_base_url"],
-                api_key=secrets["openrouter_api_key"],
-                model=secrets["openrouter_model"],
+        if secrets["gemini_api_key"]:
+            st.session_state.evaluator = LiveEvaluationPipeline(
+                api_key=secrets["gemini_api_key"],
+                model=secrets["live_model"],
             )
         else:
             st.session_state.evaluator = None
@@ -61,7 +57,7 @@ def _init_state(secrets: dict) -> None:
         if secrets["gemini_api_key"]:
             st.session_state.question_gen = QuestionGenerator(
                 api_key=secrets["gemini_api_key"],
-                model=secrets["gemini_model"],
+                live_model=secrets["live_model"],
             )
         else:
             st.session_state.question_gen = None
@@ -121,6 +117,20 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
+def _hear_question(question: str, key: str) -> None:
+    """Render a small TTS button; plays the question via Gemini Live audio."""
+    qgen: QuestionGenerator | None = st.session_state.get("question_gen")
+    if qgen is None:
+        return
+    if st.button("Hear question", key=key):
+        with st.spinner("Generating audio..."):
+            try:
+                wav = _run_async(qgen.speak_question(question))
+                st.audio(wav, format="audio/wav", autoplay=True)
+            except Exception as e:
+                st.warning(f"TTS unavailable: {e}")
+
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 def _render_sidebar(secrets: dict) -> None:
@@ -136,10 +146,10 @@ def _render_sidebar(secrets: dict) -> None:
         else:
             st.error("Gemini: Missing key")
 
-        if secrets["openrouter_api_key"]:
-            st.success("Evaluator: Connected")
+        if secrets["gemini_api_key"]:
+            st.success("Evaluator: Gemini Live (parallel)")
         else:
-            st.warning("Evaluator: Missing key")
+            st.warning("Evaluator: Missing Gemini key")
 
         store: FluentUpStore | None = st.session_state.get("store")
         if store is not None:
@@ -352,6 +362,8 @@ def _render_part1_idle() -> None:
         unsafe_allow_html=True,
     )
 
+    _hear_question(question, key=f"p1_tts_{idx}")
+
     audio = st.audio_input("Record your answer", key=f"p1_audio_{idx}")
 
     col1, col2 = st.columns([3, 1])
@@ -378,8 +390,8 @@ def _render_part1_idle() -> None:
 
 def _render_part1_result() -> None:
     sess: ExamSession = st.session_state.session
-    transcriber: GeminiTranscriber = st.session_state.transcriber
-    evaluator: EvaluationPipeline = st.session_state.evaluator
+    transcriber: GeminiLiveTranscriber = st.session_state.transcriber
+    evaluator: LiveEvaluationPipeline = st.session_state.evaluator
 
     # Get the latest turn
     p1_turns = sess.part_turns(1)
@@ -400,7 +412,7 @@ def _render_part1_result() -> None:
         if transcriber is None:
             st.error("Gemini API key required for transcription.")
         elif evaluator is None:
-            st.error("OpenRouter API key required for evaluation.")
+            st.error("Gemini API key required for evaluation.")
         else:
             with st.spinner("Transcribing..."):
                 try:
@@ -414,6 +426,7 @@ def _render_part1_result() -> None:
             with st.spinner("Evaluating (4 criteria in parallel)..."):
                 try:
                     result = _run_async(evaluator.evaluate(
+                        audio_bytes=turn.audio_bytes,
                         transcript=transcript,
                         question=turn.question,
                         part=1,
@@ -668,8 +681,8 @@ def _render_part2_recording() -> None:
 
 def _render_part2_evaluating() -> None:
     sess: ExamSession = st.session_state.session
-    transcriber: GeminiTranscriber = st.session_state.transcriber
-    evaluator: EvaluationPipeline = st.session_state.evaluator
+    transcriber: GeminiLiveTranscriber = st.session_state.transcriber
+    evaluator: LiveEvaluationPipeline = st.session_state.evaluator
 
     p2_turns = sess.part_turns(2)
     if not p2_turns:
@@ -692,7 +705,7 @@ def _render_part2_evaluating() -> None:
         st.error("Gemini API key required for transcription.")
         return
     if evaluator is None:
-        st.error("OpenRouter API key required for evaluation.")
+        st.error("Gemini API key required for evaluation.")
         return
 
     with st.spinner("Transcribing your 2-minute speech..."):
@@ -707,6 +720,7 @@ def _render_part2_evaluating() -> None:
     with st.spinner("Evaluating your speech (4 criteria)..."):
         try:
             result = _run_async(evaluator.evaluate(
+                audio_bytes=turn.audio_bytes,
                 transcript=transcript,
                 question=turn.question,
                 part=2,
@@ -803,6 +817,8 @@ def _render_part3_idle() -> None:
         unsafe_allow_html=True,
     )
 
+    _hear_question(question, key=f"p3_tts_{idx}")
+
     audio = st.audio_input("Record your answer", key=f"p3_audio_{idx}")
 
     col1, col2 = st.columns([3, 1])
@@ -829,8 +845,8 @@ def _render_part3_idle() -> None:
 
 def _render_part3_result() -> None:
     sess: ExamSession = st.session_state.session
-    transcriber: GeminiTranscriber = st.session_state.transcriber
-    evaluator: EvaluationPipeline = st.session_state.evaluator
+    transcriber: GeminiLiveTranscriber = st.session_state.transcriber
+    evaluator: LiveEvaluationPipeline = st.session_state.evaluator
 
     p3_turns = sess.part_turns(3)
     if not p3_turns:
@@ -849,7 +865,7 @@ def _render_part3_result() -> None:
         if transcriber is None:
             st.error("Gemini API key required for transcription.")
         elif evaluator is None:
-            st.error("OpenRouter API key required for evaluation.")
+            st.error("Gemini API key required for evaluation.")
         else:
             with st.spinner("Transcribing..."):
                 try:
@@ -863,6 +879,7 @@ def _render_part3_result() -> None:
             with st.spinner("Evaluating (4 criteria in parallel)..."):
                 try:
                     result = _run_async(evaluator.evaluate(
+                        audio_bytes=turn.audio_bytes,
                         transcript=transcript,
                         question=turn.question,
                         part=3,

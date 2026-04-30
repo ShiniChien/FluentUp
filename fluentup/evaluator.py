@@ -1,95 +1,114 @@
+"""
+fluentup/evaluator.py
+---------------------
+Evaluate IELTS speaking using 4 parallel Gemini Live sessions — one per criterion.
+
+Each session receives the user's audio directly, so Gemini can:
+  - Hear pronunciation, stress, intonation, connected speech  (Pronunciation)
+  - Detect hesitation patterns, rhythm, filler words          (FC)
+  - Assess vocabulary range from natural speech               (LR)
+  - Identify grammatical structures in context               (GR)
+
+Semaphore(2) limits concurrent sessions to avoid rate limits.
+"""
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 
-from openai import AsyncOpenAI
-
+from fluentup.live_session import LIVE_MODEL, gemini_live_once
 from fluentup.models import BandScore, EvaluationResult
 from fluentup.prompts import (
-    FC_SYSTEM, FC_PROMPT,
-    LR_SYSTEM, LR_PROMPT,
-    GR_SYSTEM, GR_PROMPT,
-    PRON_SYSTEM, PRON_PROMPT,
+    FC_LIVE_SYSTEM,
+    LR_LIVE_SYSTEM,
+    GR_LIVE_SYSTEM,
+    PRONUN_LIVE_SYSTEM,
 )
 
 _CRITERIA = ["FC", "LR", "GR", "Pronunciation"]
 
 
-class EvaluationPipeline:
-    def __init__(self, base_url: str, api_key: str, model: str):
-        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+def _parse_band_score(criterion: str, raw: str) -> BandScore:
+    """Extract JSON from the model's text response; return a fallback on failure."""
+    try:
+        # Strip markdown fences if present
+        cleaned = re.sub(r"```(?:json)?|```", "", raw).strip()
+        # Find the first {...} block
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        data = json.loads(match.group() if match else cleaned)
+        return BandScore(
+            criterion=criterion,
+            band=float(data.get("band", 0.0)),
+            feedback=str(data.get("feedback", "")),
+            examples=list(data.get("examples", [])),
+            tips=list(data.get("tips", data.get("improvement_tips", []))),
+        )
+    except Exception as exc:
+        return BandScore(
+            criterion=criterion,
+            band=0.0,
+            feedback=f"Could not parse evaluation: {exc}",
+            examples=[],
+            tips=[],
+        )
+
+
+class LiveEvaluationPipeline:
+    """
+    Run 4 Gemini Live sessions in parallel to evaluate one spoken answer.
+    Each session uses a criterion-specific system prompt and receives the
+    same audio, giving the model direct access to the user's speech.
+    """
+
+    def __init__(self, api_key: str, model: str = LIVE_MODEL) -> None:
+        self._api   = api_key
         self._model = model
-        self._sem = asyncio.Semaphore(2)
+        self._sem   = asyncio.Semaphore(2)  # max 2 concurrent Live sessions
 
     async def evaluate(
-        self, transcript: str, question: str, part: int = 1
+        self,
+        audio_bytes: bytes,
+        transcript:  str,
+        question:    str,
+        part:        int = 1,
     ) -> EvaluationResult:
-        fc, lr, gr, pr = await asyncio.gather(
-            self._evaluate_fc(transcript, question, part),
-            self._evaluate_lr(transcript, question, part),
-            self._evaluate_gr(transcript, question, part),
-            self._evaluate_pronunciation(transcript),
-        )
-        return EvaluationResult(transcript=transcript, scores=[fc, lr, gr, pr])
+        """
+        Evaluate all 4 IELTS criteria for a single spoken answer.
+        The transcript is injected into each system prompt as context.
+        """
+        systems = {
+            "FC":            FC_LIVE_SYSTEM.format(question=question, part=part, transcript=transcript),
+            "LR":            LR_LIVE_SYSTEM.format(question=question, part=part, transcript=transcript),
+            "GR":            GR_LIVE_SYSTEM.format(question=question, part=part, transcript=transcript),
+            "Pronunciation": PRONUN_LIVE_SYSTEM.format(question=question, part=part, transcript=transcript),
+        }
 
-    async def _evaluate_fc(self, transcript: str, question: str, part: int) -> BandScore:
-        return await self._call_metric(
-            "FC",
-            FC_SYSTEM,
-            FC_PROMPT.format(transcript=transcript, question=question, part=part),
+        async def _eval_one(criterion: str, system_prompt: str) -> BandScore:
+            async with self._sem:
+                try:
+                    _, ai_response = await asyncio.wait_for(
+                        gemini_live_once(
+                            api_key=self._api,
+                            system_prompt=system_prompt,
+                            wav_bytes=audio_bytes,
+                            model=self._model,
+                        ),
+                        timeout=45.0,
+                    )
+                    return _parse_band_score(criterion, ai_response)
+                except Exception as exc:
+                    return BandScore(
+                        criterion=criterion,
+                        band=0.0,
+                        feedback=f"Evaluation failed: {exc}",
+                        examples=[],
+                        tips=[],
+                    )
+
+        scores = await asyncio.gather(
+            *[_eval_one(c, systems[c]) for c in _CRITERIA],
+            return_exceptions=False,
         )
 
-    async def _evaluate_lr(self, transcript: str, question: str, part: int) -> BandScore:
-        return await self._call_metric(
-            "LR",
-            LR_SYSTEM,
-            LR_PROMPT.format(transcript=transcript, question=question, part=part),
-        )
-
-    async def _evaluate_gr(self, transcript: str, question: str, part: int) -> BandScore:
-        return await self._call_metric(
-            "GR",
-            GR_SYSTEM,
-            GR_PROMPT.format(transcript=transcript, question=question, part=part),
-        )
-
-    async def _evaluate_pronunciation(self, transcript: str) -> BandScore:
-        return await self._call_metric(
-            "Pronunciation",
-            PRON_SYSTEM,
-            PRON_PROMPT.format(transcript=transcript),
-        )
-
-    async def _call_metric(self, criterion: str, system: str, user: str) -> BandScore:
-        async with self._sem:
-            try:
-                resp = await asyncio.wait_for(
-                    self._client.chat.completions.create(
-                        model=self._model,
-                        messages=[
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": user},
-                        ],
-                        temperature=0.3,
-                        response_format={"type": "json_object"},
-                    ),
-                    timeout=30.0,
-                )
-                raw = resp.choices[0].message.content or "{}"
-                data = json.loads(raw)
-                return BandScore(
-                    criterion=criterion,
-                    band=float(data.get("band", 0.0)),
-                    feedback=data.get("feedback", ""),
-                    examples=data.get("examples", []),
-                    tips=data.get("improvement_tips", []),
-                )
-            except Exception as e:
-                return BandScore(
-                    criterion=criterion,
-                    band=0.0,
-                    feedback=f"Evaluation failed: {e}",
-                    examples=[],
-                    tips=[],
-                )
+        return EvaluationResult(transcript=transcript, scores=list(scores))

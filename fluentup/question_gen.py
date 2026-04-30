@@ -12,6 +12,9 @@ from fluentup.prompts import (
     PART3_RANDOM_QUESTION_PROMPT,
 )
 from fluentup.models import CueCard
+from fluentup.live_session import gemini_live_speak, LIVE_MODEL
+
+TEXT_MODEL = "gemini-2.0-flash"
 
 PART1_TOPICS = [
     "hometown", "work or studies", "hobbies", "travel", "food",
@@ -25,9 +28,11 @@ PART3_TOPICS = [
 
 
 class QuestionGenerator:
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
-        self._client = genai.Client(api_key=api_key)
-        self._model = model
+    def __init__(self, api_key: str, live_model: str = LIVE_MODEL):
+        self._client     = genai.Client(api_key=api_key)
+        self._api_key    = api_key
+        self._model      = TEXT_MODEL
+        self._live_model = live_model
 
     async def generate_part1_questions(self, n: int = 10) -> list[str]:
         topic = random.choice(PART1_TOPICS)
@@ -97,3 +102,12 @@ class QuestionGenerator:
         except json.JSONDecodeError:
             pass
         return [f"What do you think about {part2_topic or 'this topic'}?"] * n
+
+    async def speak_question(self, text: str, voice: str = "Kore") -> bytes:
+        """Return WAV bytes of the question spoken by the Gemini Live examiner voice."""
+        return await gemini_live_speak(
+            api_key=self._api_key,
+            text=text,
+            voice=voice,
+            model=self._live_model,
+        )

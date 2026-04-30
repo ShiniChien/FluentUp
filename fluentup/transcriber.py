@@ -1,28 +1,36 @@
+"""
+fluentup/transcriber.py
+-----------------------
+Transcribe user's spoken audio via a Gemini Live session.
+Input transcript is captured from input_audio_transcription (not the model's reply).
+"""
 from __future__ import annotations
 
-from google import genai
-from google.genai import types
+from fluentup.live_session import LIVE_MODEL, gemini_live_once
 
-
-TRANSCRIBE_PROMPT = (
-    "Transcribe the following speech exactly as spoken. "
-    "Preserve hesitations like 'um', 'uh', 'er', 'like', 'you know'. "
-    "The speaker may have a Vietnamese accent — transcribe what is actually said. "
-    "Return only the transcript text, no commentary, no timestamps."
+_SYSTEM = (
+    "The user is an English language learner practising IELTS speaking. "
+    "Listen to their answer and acknowledge it briefly (one sentence). "
+    "Preserve all hesitations (um, uh, er, like, you know) — "
+    "these are captured via transcription and must not be cleaned up."
 )
 
 
-class GeminiTranscriber:
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
-        self._client = genai.Client(api_key=api_key)
+class GeminiLiveTranscriber:
+    def __init__(self, api_key: str, model: str = LIVE_MODEL) -> None:
+        self._api   = api_key
         self._model = model
 
-    async def transcribe(self, audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
-        response = await self._client.aio.models.generate_content(
+    async def transcribe(self, audio_bytes: bytes) -> str:
+        """
+        Return the input_audio_transcription captured from Gemini Live.
+        Falls back to the model's text reply if no transcription is available.
+        """
+        input_transcript, fallback = await gemini_live_once(
+            api_key=self._api,
+            system_prompt=_SYSTEM,
+            wav_bytes=audio_bytes,
             model=self._model,
-            contents=[
-                TRANSCRIBE_PROMPT,
-                types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
-            ],
         )
-        return (response.text or "").strip()
+        return input_transcript or fallback
+
