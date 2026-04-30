@@ -14,7 +14,7 @@ import streamlit as st
 
 from fluentup.exam_session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
 from fluentup.models import Turn, EvaluationResult
-from fluentup.transcriber import GeminiLiveTranscriber
+from fluentup.transcriber import GeminiLiveTranscriber  # kept for optional future use
 from fluentup.evaluator import LiveEvaluationPipeline
 from fluentup.question_gen import QuestionGenerator
 from fluentup.store import FluentUpStore
@@ -52,14 +52,6 @@ def _init_state(secrets: dict) -> None:
 
     if "session" not in st.session_state:
         st.session_state.session = ExamSession()
-    if "transcriber" not in st.session_state:
-        if secrets["gemini_api_key"]:
-            st.session_state.transcriber = GeminiLiveTranscriber(
-                api_key=secrets["gemini_api_key"],
-                model=secrets["live_model"],
-            )
-        else:
-            st.session_state.transcriber = None
     if "evaluator" not in st.session_state:
         if secrets["gemini_api_key"]:
             st.session_state.evaluator = LiveEvaluationPipeline(
@@ -425,10 +417,8 @@ def _render_part1_idle() -> None:
 
 def _render_part1_result() -> None:
     sess: ExamSession = st.session_state.session
-    transcriber: GeminiLiveTranscriber = st.session_state.transcriber
     evaluator: LiveEvaluationPipeline = st.session_state.evaluator
 
-    # Get the latest turn
     p1_turns = sess.part_turns(1)
     if not p1_turns:
         sess.phase = "part1_idle"
@@ -443,26 +433,13 @@ def _render_part1_result() -> None:
     st.caption(f"Question {idx + 1} of {total}")
 
     if turn.result is None:
-        # Transcribe + evaluate
-        if transcriber is None:
-            st.error("Gemini API key required for transcription.")
-        elif evaluator is None:
+        if evaluator is None:
             st.error("Gemini API key required for evaluation.")
         else:
-            with st.spinner("Transcribing..."):
-                try:
-                    transcript = _run_async(transcriber.transcribe(turn.audio_bytes))
-                except Exception as e:
-                    st.error(f"Transcription failed: {e}")
-                    if st.button("Retry"):
-                        st.rerun()
-                    return
-
             with st.spinner("Evaluating (4 criteria in parallel)..."):
                 try:
                     result = _run_async(evaluator.evaluate(
                         audio_bytes=turn.audio_bytes,
-                        transcript=transcript,
                         question=turn.question,
                         part=1,
                     ))
@@ -716,7 +693,6 @@ def _render_part2_recording() -> None:
 
 def _render_part2_evaluating() -> None:
     sess: ExamSession = st.session_state.session
-    transcriber: GeminiLiveTranscriber = st.session_state.transcriber
     evaluator: LiveEvaluationPipeline = st.session_state.evaluator
 
     p2_turns = sess.part_turns(2)
@@ -736,27 +712,14 @@ def _render_part2_evaluating() -> None:
 
     st.header("Part 2 — Processing")
 
-    if transcriber is None:
-        st.error("Gemini API key required for transcription.")
-        return
     if evaluator is None:
         st.error("Gemini API key required for evaluation.")
         return
 
-    with st.spinner("Transcribing your 2-minute speech..."):
-        try:
-            transcript = _run_async(transcriber.transcribe(turn.audio_bytes))
-        except Exception as e:
-            st.error(f"Transcription failed: {e}")
-            if st.button("Retry"):
-                st.rerun()
-            return
-
-    with st.spinner("Evaluating your speech (4 criteria)..."):
+    with st.spinner("Evaluating your speech (4 criteria in parallel)..."):
         try:
             result = _run_async(evaluator.evaluate(
                 audio_bytes=turn.audio_bytes,
-                transcript=transcript,
                 question=turn.question,
                 part=2,
             ))
@@ -880,7 +843,6 @@ def _render_part3_idle() -> None:
 
 def _render_part3_result() -> None:
     sess: ExamSession = st.session_state.session
-    transcriber: GeminiLiveTranscriber = st.session_state.transcriber
     evaluator: LiveEvaluationPipeline = st.session_state.evaluator
 
     p3_turns = sess.part_turns(3)
@@ -897,25 +859,13 @@ def _render_part3_result() -> None:
     st.caption(f"Question {idx + 1} of {total}")
 
     if turn.result is None:
-        if transcriber is None:
-            st.error("Gemini API key required for transcription.")
-        elif evaluator is None:
+        if evaluator is None:
             st.error("Gemini API key required for evaluation.")
         else:
-            with st.spinner("Transcribing..."):
-                try:
-                    transcript = _run_async(transcriber.transcribe(turn.audio_bytes))
-                except Exception as e:
-                    st.error(f"Transcription failed: {e}")
-                    if st.button("Retry"):
-                        st.rerun()
-                    return
-
             with st.spinner("Evaluating (4 criteria in parallel)..."):
                 try:
                     result = _run_async(evaluator.evaluate(
                         audio_bytes=turn.audio_bytes,
-                        transcript=transcript,
                         question=turn.question,
                         part=3,
                     ))

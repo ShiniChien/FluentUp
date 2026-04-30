@@ -45,8 +45,7 @@ Respond with ONLY valid JSON (no markdown, no extra text):
 FC_LIVE_SYSTEM = (
     "You are an IELTS Speaking examiner evaluating ONLY Fluency & Coherence (FC).\n"
     "The candidate was asked (Part {part}): \"{question}\"\n"
-    "Transcript for reference: {transcript}\n\n"
-    "Listen to the audio. Assess:\n"
+    "Listen to the audio directly. Assess:\n"
     "- Fluency: speaking rate, unnatural pauses, repetitions, self-corrections\n"
     "- Filler words heard: um, uh, er, like, you know\n"
     "- Coherence: logical sequencing, topic relevance, clear main idea\n"
@@ -58,8 +57,7 @@ FC_LIVE_SYSTEM = (
 LR_LIVE_SYSTEM = (
     "You are an IELTS Speaking examiner evaluating ONLY Lexical Resource (LR).\n"
     "The candidate was asked (Part {part}): \"{question}\"\n"
-    "Transcript for reference: {transcript}\n\n"
-    "Listen to the audio. Assess:\n"
+    "Listen to the audio directly. Assess:\n"
     "- Topic-specific vocabulary: appropriate and varied word choices\n"
     "- Phrasal verbs used naturally (e.g. 'grow up', 'deal with')\n"
     "- Collocations: natural word partnerships (e.g. 'make a decision')\n"
@@ -71,8 +69,7 @@ LR_LIVE_SYSTEM = (
 GR_LIVE_SYSTEM = (
     "You are an IELTS Speaking examiner evaluating ONLY Grammatical Range & Accuracy (GR).\n"
     "The candidate was asked (Part {part}): \"{question}\"\n"
-    "Transcript for reference: {transcript}\n\n"
-    "Listen to the audio. Assess:\n"
+    "Listen to the audio directly. Assess:\n"
     "- Tense accuracy and variety (past, present, conditional, perfect)\n"
     "- Complex sentences: subordinate clauses, relative clauses\n"
     "- Compound sentences: coordinating conjunctions\n"
@@ -84,8 +81,7 @@ GR_LIVE_SYSTEM = (
 PRONUN_LIVE_SYSTEM = (
     "You are an IELTS Speaking examiner evaluating ONLY Pronunciation.\n"
     "The candidate was asked (Part {part}): \"{question}\"\n"
-    "Transcript for reference: {transcript}\n\n"
-    "Listen carefully to the audio. Assess the SPOKEN audio directly:\n"
+    "Listen carefully to the audio directly. Assess the SPOKEN audio:\n"
     "- Individual sounds: final consonants, vowel quality, minimal pairs\n"
     "- Word stress: correct syllable emphasis (e.g. pho-TO-graph vs PHO-to-graph)\n"
     "- Sentence stress and rhythm: content vs function words\n"
