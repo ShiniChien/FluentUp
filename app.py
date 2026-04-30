@@ -24,11 +24,14 @@ from fluentup.store import FluentUpStore
 
 def _load_secrets() -> dict:
     return {
-        "gemini_api_key": st.secrets.get("GEMINI_API_KEY", ""),
-        "live_model":     st.secrets.get("GEMINI_LIVE_MODEL", "models/gemini-2.0-flash-live-001"),
-        "mongodb_uri":    st.secrets.get("MONGODB_URI", ""),
-        "mongodb_username": st.secrets.get("MONGODB_USERNAME", ""),
-        "mongodb_password": st.secrets.get("MONGODB_PASSWORD", ""),
+        "gemini_api_key":       st.secrets.get("GEMINI_API_KEY", ""),
+        "live_model":           st.secrets.get("GEMINI_LIVE_MODEL", ""),
+        "mongodb_uri":          st.secrets.get("MONGODB_URI", ""),
+        "mongodb_username":     st.secrets.get("MONGODB_USERNAME", ""),
+        "mongodb_password":     st.secrets.get("MONGODB_PASSWORD", ""),
+        "openrouter_base_url":  st.secrets.get("OPENROUTER_BASE_URL", ""),
+        "openrouter_api_key":   st.secrets.get("OPENROUTER_API_KEY", ""),
+        "openrouter_model":     st.secrets.get("OPENROUTER_MODEL", ""),
     }
 
 
@@ -58,6 +61,9 @@ def _init_state(secrets: dict) -> None:
             st.session_state.question_gen = QuestionGenerator(
                 api_key=secrets["gemini_api_key"],
                 live_model=secrets["live_model"],
+                openrouter_base_url=secrets["openrouter_base_url"],
+                openrouter_api_key=secrets["openrouter_api_key"],
+                openrouter_model=secrets["openrouter_model"],
             )
         else:
             st.session_state.question_gen = None

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import random
 
-from google import genai
+import openai
 
 from fluentup.prompts import (
     PART1_QUESTION_PROMPT,
@@ -12,9 +12,7 @@ from fluentup.prompts import (
     PART3_RANDOM_QUESTION_PROMPT,
 )
 from fluentup.models import CueCard
-from fluentup.live_session import gemini_live_speak, LIVE_MODEL
-
-TEXT_MODEL = "gemini-2.0-flash"
+from fluentup.live_session import gemini_live_speak
 
 PART1_TOPICS = [
     "hometown", "work or studies", "hobbies", "travel", "food",
@@ -27,26 +25,52 @@ PART3_TOPICS = [
 ]
 
 
+def _strip_fences(text: str) -> str:
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return text.strip()
+
+
 class QuestionGenerator:
-    def __init__(self, api_key: str, live_model: str = LIVE_MODEL):
-        self._client     = genai.Client(api_key=api_key)
+    def __init__(
+        self,
+        api_key: str,
+        live_model: str,
+        openrouter_base_url: str,
+        openrouter_api_key: str,
+        openrouter_model: str,
+    ):
+        if not live_model:
+            raise ValueError("live_model is required")
+        if not openrouter_base_url:
+            raise ValueError("openrouter_base_url is required")
+        if not openrouter_api_key:
+            raise ValueError("openrouter_api_key is required")
+        if not openrouter_model:
+            raise ValueError("openrouter_model is required")
+
         self._api_key    = api_key
-        self._model      = TEXT_MODEL
         self._live_model = live_model
+
+        self._or_client = openai.AsyncOpenAI(
+            base_url=openrouter_base_url,
+            api_key=openrouter_api_key,
+        )
+        self._or_model = openrouter_model
+
+    async def _chat(self, prompt: str) -> str:
+        resp = await self._or_client.chat.completions.create(
+            model=self._or_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+        )
+        return (resp.choices[0].message.content or "").strip()
 
     async def generate_part1_questions(self, n: int = 10) -> list[str]:
         topic = random.choice(PART1_TOPICS)
-        prompt = PART1_QUESTION_PROMPT.format(n=n, topic=topic)
-        response = await self._client.aio.models.generate_content(
-            model=self._model,
-            contents=[prompt],
-        )
-        text = (response.text or "[]").strip()
-        # Strip markdown code fences if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+        text = _strip_fences(await self._chat(PART1_QUESTION_PROMPT.format(n=n, topic=topic)))
         try:
             questions = json.loads(text)
             if isinstance(questions, list):
@@ -56,15 +80,7 @@ class QuestionGenerator:
         return [f"Tell me about your {topic}."] * n
 
     async def generate_cue_card(self) -> CueCard:
-        response = await self._client.aio.models.generate_content(
-            model=self._model,
-            contents=[CUE_CARD_PROMPT],
-        )
-        text = (response.text or "{}").strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+        text = _strip_fences(await self._chat(CUE_CARD_PROMPT))
         try:
             data = json.loads(text)
             return CueCard(
@@ -86,15 +102,7 @@ class QuestionGenerator:
             topic = random.choice(PART3_TOPICS)
             prompt = PART3_RANDOM_QUESTION_PROMPT.format(topic=topic, n=n)
 
-        response = await self._client.aio.models.generate_content(
-            model=self._model,
-            contents=[prompt],
-        )
-        text = (response.text or "[]").strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+        text = _strip_fences(await self._chat(prompt))
         try:
             questions = json.loads(text)
             if isinstance(questions, list):

@@ -20,7 +20,7 @@ import numpy as np
 import google.genai as genai
 from google.genai import types
 
-LIVE_MODEL    = "models/gemini-2.0-flash-live-001"
+LIVE_MODEL    = "models/gemini-3.1-flash-live-preview"
 INPUT_RATE    = 16000   # Gemini Live expects 16 kHz PCM input
 OUTPUT_RATE   = 24000   # Gemini Live audio output is 24 kHz PCM
 CHUNK_BYTES   = INPUT_RATE * 2 * 100 // 1000   # 100 ms of 16-bit PCM = 3 200 bytes
