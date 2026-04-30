@@ -18,6 +18,7 @@ from fluentup.transcriber import GeminiLiveTranscriber
 from fluentup.evaluator import LiveEvaluationPipeline
 from fluentup.question_gen import QuestionGenerator
 from fluentup.store import FluentUpStore
+from fluentup.config import ACCENT_LABELS, DEFAULT_ACCENT
 
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
@@ -128,10 +129,11 @@ def _hear_question(question: str, key: str) -> None:
     qgen: QuestionGenerator | None = st.session_state.get("question_gen")
     if qgen is None:
         return
+    accent = st.session_state.get("examiner_accent", DEFAULT_ACCENT)
     if st.button("Hear question", key=key):
         with st.spinner("Generating audio..."):
             try:
-                wav = _run_async(qgen.speak_question(question))
+                wav = _run_async(qgen.speak_question(question, accent=accent))
                 st.audio(wav, format="audio/wav", autoplay=True)
             except Exception as e:
                 st.warning(f"TTS unavailable: {e}")
@@ -162,6 +164,22 @@ def _render_sidebar(secrets: dict) -> None:
             st.success("MongoDB: Connected")
         else:
             st.warning("MongoDB: Not configured")
+
+        st.divider()
+        st.markdown("**Examiner Accent**")
+        accent_options = list(ACCENT_LABELS.keys())
+        accent_display = [ACCENT_LABELS[a] for a in accent_options]
+        current = st.session_state.get("examiner_accent", DEFAULT_ACCENT)
+        selected_idx = accent_options.index(current) if current in accent_options else 0
+        chosen = st.selectbox(
+            "Voice accent",
+            options=accent_options,
+            format_func=lambda a: ACCENT_LABELS[a],
+            index=selected_idx,
+            key="accent_select",
+            label_visibility="collapsed",
+        )
+        st.session_state["examiner_accent"] = chosen
 
         st.divider()
 

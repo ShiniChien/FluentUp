@@ -2,27 +2,50 @@ from __future__ import annotations
 
 import json
 import random
+from pathlib import Path
 
 import openai
 
 from fluentup.prompts import (
-    PART1_QUESTION_PROMPT,
     CUE_CARD_PROMPT,
     PART3_QUESTION_PROMPT,
     PART3_RANDOM_QUESTION_PROMPT,
 )
 from fluentup.models import CueCard
 from fluentup.live_session import gemini_live_speak
+from fluentup.config import (
+    EXAMINER_ACCENTS,
+    DEFAULT_ACCENT,
+    DEFAULT_VOICE,
+    PART1_QUESTIONS_PER_SESSION,
+    PART3_QUESTIONS_PER_SESSION,
+    PART3_TOPICS,
+    SEED_WORDS_MIN,
+    SEED_WORDS_MAX,
+)
+from fluentup.question_bank import QUESTION_BANK
 
-PART1_TOPICS = [
-    "hometown", "work or studies", "hobbies", "travel", "food",
-    "technology", "music", "sports", "family", "environment",
-]
+_VIET11K_PATH = Path(__file__).parent / "Viet11K.txt"
+_viet_words: list[str] | None = None
 
-PART3_TOPICS = [
-    "education", "technology and society", "environmental challenges",
-    "cultural traditions", "urban development", "health and wellbeing",
-]
+
+def _load_viet_words() -> list[str]:
+    global _viet_words
+    if _viet_words is None:
+        try:
+            lines = _VIET11K_PATH.read_text(encoding="utf-8").splitlines()
+            _viet_words = [ln.strip() for ln in lines if ln.strip()]
+        except Exception:
+            _viet_words = []
+    return _viet_words
+
+
+def _seed_words(n: int = 2) -> list[str]:
+    """Pick n random Vietnamese words to seed topic generation."""
+    words = _load_viet_words()
+    if not words:
+        return []
+    return random.sample(words, min(n, len(words)))
 
 
 def _strip_fences(text: str) -> str:
@@ -68,19 +91,23 @@ class QuestionGenerator:
         )
         return (resp.choices[0].message.content or "").strip()
 
-    async def generate_part1_questions(self, n: int = 10) -> list[str]:
-        topic = random.choice(PART1_TOPICS)
-        text = _strip_fences(await self._chat(PART1_QUESTION_PROMPT.format(n=n, topic=topic)))
-        try:
-            questions = json.loads(text)
-            if isinstance(questions, list):
-                return questions[:n]
-        except json.JSONDecodeError:
-            pass
-        return [f"Tell me about your {topic}."] * n
+    async def generate_part1_questions(self, n: int = PART1_QUESTIONS_PER_SESSION) -> list[str]:
+        """Pick n questions from the pre-built bank for a random topic.
+        No LLM call — instant and deterministic."""
+        topic = random.choice(list(QUESTION_BANK.keys()))
+        pool = QUESTION_BANK[topic]
+        return random.sample(pool, min(n, len(pool)))
 
     async def generate_cue_card(self) -> CueCard:
-        text = _strip_fences(await self._chat(CUE_CARD_PROMPT))
+        # Sample 1-3 Vietnamese seed words to diversify the topic
+        seeds = _seed_words(random.randint(SEED_WORDS_MIN, SEED_WORDS_MAX))
+        seed_hint = ""
+        if seeds:
+            seed_hint = (
+                f"\nFor inspiration, use 1-3 of these Vietnamese concept words as a thematic seed "
+                f"(translate / interpret them freely into an English IELTS topic): {', '.join(seeds)}"
+            )
+        text = _strip_fences(await self._chat(CUE_CARD_PROMPT + seed_hint))
         try:
             data = json.loads(text)
             return CueCard(
@@ -95,7 +122,7 @@ class QuestionGenerator:
                 explain="And explain why you found it particularly interesting.",
             )
 
-    async def generate_part3_questions(self, part2_topic: str, n: int = 5) -> list[str]:
+    async def generate_part3_questions(self, part2_topic: str, n: int = PART3_QUESTIONS_PER_SESSION) -> list[str]:
         if part2_topic:
             prompt = PART3_QUESTION_PROMPT.format(part2_topic=part2_topic, n=n)
         else:
@@ -111,11 +138,21 @@ class QuestionGenerator:
             pass
         return [f"What do you think about {part2_topic or 'this topic'}?"] * n
 
-    async def speak_question(self, text: str, voice: str = "Kore") -> bytes:
-        """Return WAV bytes of the question spoken by the Gemini Live examiner voice."""
+    async def speak_question(
+        self,
+        text: str,
+        voice: str = DEFAULT_VOICE,
+        accent: str = DEFAULT_ACCENT,
+    ) -> bytes:
+        """Return WAV bytes of the question spoken by the Gemini Live examiner voice.
+
+        accent: one of 'us', 'uk', 'in', 'au' (see fluentup/accents.py)
+        """
+        system_instruction = EXAMINER_ACCENTS.get(accent, EXAMINER_ACCENTS[DEFAULT_ACCENT])
         return await gemini_live_speak(
             api_key=self._api_key,
             text=text,
             voice=voice,
             model=self._live_model,
+            system_instruction=system_instruction,
         )

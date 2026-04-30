@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from fluentup.models import Turn, CueCard, ExamSummary
+from fluentup.config import PREP_SECONDS, SPEAK_SECONDS  # noqa: F401 – re-exported for app.py
 
 Phase = Literal[
     "home",
@@ -14,8 +15,6 @@ Phase = Literal[
     "session_summary",
 ]
 
-PREP_SECONDS = 60
-SPEAK_SECONDS = 120
 
 
 @dataclass

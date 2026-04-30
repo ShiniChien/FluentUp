@@ -20,10 +20,9 @@ import numpy as np
 import google.genai as genai
 from google.genai import types
 
-LIVE_MODEL    = "models/gemini-3.1-flash-live-preview"
-INPUT_RATE    = 16000   # Gemini Live expects 16 kHz PCM input
-OUTPUT_RATE   = 24000   # Gemini Live audio output is 24 kHz PCM
-CHUNK_BYTES   = INPUT_RATE * 2 * 100 // 1000   # 100 ms of 16-bit PCM = 3 200 bytes
+from fluentup.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS
+
+CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000  # e.g. 100 ms of 16-bit PCM = 3200 bytes
 
 
 # ── WAV → PCM 16 kHz mono ─────────────────────────────────────────────────────
@@ -178,21 +177,24 @@ async def gemini_live_once(
 # ── TTS via Gemini Live AUDIO output ─────────────────────────────────────────
 
 async def gemini_live_speak(
-    api_key: str,
-    text:    str,
-    voice:   str = "Kore",
-    model:   str = LIVE_MODEL,
+    api_key:            str,
+    text:               str,
+    voice:              str = "Kore",
+    model:              str = LIVE_MODEL,
+    system_instruction: str = "",
 ) -> bytes:
     """
     Use Gemini Live with AUDIO response modality to synthesize speech.
     Returns WAV bytes (24 kHz mono PCM wrapped in a WAV header).
+
+    Pass system_instruction to shape accent/persona (e.g. EXAMINER_ACCENTS["uk"]).
     """
     client = genai.Client(
         api_key=api_key,
         http_options={"api_version": "v1beta"},
     )
 
-    cfg = types.LiveConnectConfig(
+    cfg_kwargs: dict = dict(
         response_modalities=[types.Modality.AUDIO],
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
@@ -204,11 +206,20 @@ async def gemini_live_speak(
         ),
         thinking_config=types.ThinkingConfig(include_thoughts=False),
     )
+    if system_instruction.strip():
+        cfg_kwargs["system_instruction"] = types.Content(
+            parts=[types.Part.from_text(text=system_instruction)]
+        )
+
+    cfg = types.LiveConnectConfig(**cfg_kwargs)
 
     pcm_chunks: list[bytes] = []
 
     async with client.aio.live.connect(model=model, config=cfg) as session:
-        await session.send_realtime_input(text=text)
+        # Explicit read instruction prevents the model from paraphrasing
+        await session.send_realtime_input(
+            text=f"Read the following text exactly as written, do not add or change anything:\n{text}"
+        )
 
         async for response in session.receive():
             if getattr(response, "go_away", None) is not None:
