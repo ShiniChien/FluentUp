@@ -38,7 +38,18 @@ def _load_secrets() -> dict:
 
 # ── State init ────────────────────────────────────────────────────────────────
 
+# Bump this whenever the signature of any session-state object changes so that
+# Streamlit reloads stale cached instances without requiring a manual page refresh.
+_STATE_VERSION = 2
+
+
 def _init_state(secrets: dict) -> None:
+    if st.session_state.get("_state_version") != _STATE_VERSION:
+        # Wipe all service objects so they are re-created with the current code.
+        for key in ("transcriber", "evaluator", "question_gen", "store"):
+            st.session_state.pop(key, None)
+        st.session_state["_state_version"] = _STATE_VERSION
+
     if "session" not in st.session_state:
         st.session_state.session = ExamSession()
     if "transcriber" not in st.session_state:
@@ -352,9 +363,9 @@ def _render_part1_loading() -> None:
             st.rerun()
         return
 
-    with st.spinner("Generating 10 questions..."):
+    with st.spinner("Loading questions..."):
         try:
-            questions = _run_async(qgen.generate_part1_questions(n=10))
+            questions = _run_async(qgen.generate_part1_questions())
             sess.part1_questions = questions
             sess.part1_index = 0
             sess.phase = "part1_idle"
@@ -808,7 +819,7 @@ def _render_part3_loading() -> None:
     with st.spinner("Generating discussion questions..."):
         try:
             questions = _run_async(
-                qgen.generate_part3_questions(part2_topic=sess.part2_topic, n=5)
+                qgen.generate_part3_questions(part2_topic=sess.part2_topic)
             )
             sess.part3_questions = questions
             sess.part3_index = 0
