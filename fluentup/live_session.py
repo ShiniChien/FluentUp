@@ -199,35 +199,37 @@ async def gemini_live_speak(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
             )
         ),
+        realtime_input_config=types.RealtimeInputConfig(
+            automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
+        ),
+        thinking_config=types.ThinkingConfig(include_thoughts=False),
     )
 
     pcm_chunks: list[bytes] = []
 
     async with client.aio.live.connect(model=model, config=cfg) as session:
-        await session.send_client_content(
-            turns=types.Content(
-                parts=[types.Part.from_text(text=text)],
-                role="user",
-            ),
-            turn_complete=True,
-        )
+        await session.send_realtime_input(text=text)
 
         async for response in session.receive():
             if getattr(response, "go_away", None) is not None:
                 break
 
             sc = getattr(response, "server_content", None)
-            if sc is None:
-                continue
+            if sc is not None:
+                mt = getattr(sc, "model_turn", None)
+                if mt:
+                    for part in getattr(mt, "parts", []) or []:
+                        inline = getattr(part, "inline_data", None)
+                        if inline and getattr(inline, "data", None):
+                            pcm_chunks.append(inline.data)
 
-            mt = getattr(sc, "model_turn", None)
-            if mt:
-                for part in getattr(mt, "parts", []) or []:
-                    inline = getattr(part, "inline_data", None)
-                    if inline and getattr(inline, "data", None):
-                        pcm_chunks.append(inline.data)
+                if getattr(sc, "turn_complete", False):
+                    break
 
-            if getattr(sc, "turn_complete", False):
+            if getattr(response, "turn_complete", False):
                 break
+
+    if not pcm_chunks:
+        raise RuntimeError("Empty audio received from Live session")
 
     return pcm_to_wav(b"".join(pcm_chunks), OUTPUT_RATE)
