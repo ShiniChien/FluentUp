@@ -1129,9 +1129,6 @@ def main() -> None:
         st.info("The app requires Gemini for audio transcription and question generation.")
         return
 
-    if not secrets["openrouter_api_key"]:
-        st.warning("Add `OPENROUTER_API_KEY` to `.streamlit/secrets.toml` for evaluation.")
-
     sess: ExamSession = st.session_state.session
     phase = sess.phase
 
