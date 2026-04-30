@@ -205,11 +205,15 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
     if evaluator is None:
         return
 
-    st.session_state["eval_partial"] = {}
+    # Use plain Python dicts — threads must NOT touch st.session_state directly
+    # (it is a thread-local proxy and raises KeyError from non-main threads).
+    partial: dict = {}
+    errors: dict = {}
+    st.session_state["eval_partial"] = partial
     st.session_state["eval_auto_played"] = set()
-    st.session_state["eval_errors"] = {}
+    st.session_state["eval_errors"] = errors
 
-    def _worker(criterion: str) -> None:
+    def _worker(criterion: str, results: dict, errs: dict) -> None:
         try:
             score, _, wav = asyncio.run(evaluator.eval_one(
                 criterion=criterion,
@@ -217,12 +221,12 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
                 question=turn.question,
                 part=part,
             ))
-            st.session_state["eval_partial"][criterion] = {"score": score, "wav": wav}
+            results[criterion] = {"score": score, "wav": wav}
         except Exception as exc:
-            st.session_state["eval_errors"][criterion] = str(exc)
+            errs[criterion] = str(exc)
 
     for c in CRITERIA:
-        threading.Thread(target=_worker, args=(c,), daemon=True).start()
+        threading.Thread(target=_worker, args=(c, partial, errors), daemon=True).start()
 
 
 def _render_streaming_eval(turn: Turn, part: int) -> bool:
