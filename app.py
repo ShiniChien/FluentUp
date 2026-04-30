@@ -40,7 +40,7 @@ def _load_secrets() -> dict:
 
 # Bump this whenever the signature of any session-state object changes so that
 # Streamlit reloads stale cached instances without requiring a manual page refresh.
-_STATE_VERSION = 2
+_STATE_VERSION = 4
 
 
 def _init_state(secrets: dict) -> None:
@@ -57,6 +57,9 @@ def _init_state(secrets: dict) -> None:
             st.session_state.evaluator = LiveEvaluationPipeline(
                 api_key=secrets["gemini_api_key"],
                 model=secrets["live_model"],
+                openrouter_base_url=secrets["openrouter_base_url"],
+                openrouter_api_key=secrets["openrouter_api_key"],
+                openrouter_model=secrets["openrouter_model"],
             )
         else:
             st.session_state.evaluator = None
@@ -85,17 +88,18 @@ def _init_state(secrets: dict) -> None:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _band_color(band: float) -> str:
+    """Background color for a band score — all dark enough for white text."""
     if band >= 8.0:
-        return "#00695C"
+        return "#00695C"   # dark teal
     if band >= 7.0:
-        return "#2E7D32"
+        return "#2E7D32"   # dark green
     if band >= 6.0:
-        return "#7CB342"
+        return "#558B2F"   # dark olive-green
     if band >= 5.0:
-        return "#FDD835"
+        return "#E65100"   # dark orange
     if band >= 4.0:
-        return "#FB8C00"
-    return "#E53935"
+        return "#BF360C"   # deep orange-red
+    return "#B71C1C"       # dark red
 
 
 def _band_bar(band: float) -> str:
@@ -254,6 +258,10 @@ def _render_evaluation(result: EvaluationResult) -> None:
     for score in result.scores:
         c = _band_color(score.band)
         with st.expander(f"{score.criterion} — {score.band:.1f}  {_band_bar(score.band)}"):
+            # Play examiner's spoken feedback if available
+            wav = result.criterion_audio.get(score.criterion)
+            if wav:
+                st.audio(wav, format="audio/wav")
             if score.feedback:
                 st.markdown(score.feedback)
             if score.examples:

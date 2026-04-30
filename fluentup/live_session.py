@@ -14,6 +14,8 @@ Flow (TTS):
 """
 from __future__ import annotations
 
+import asyncio
+import random
 import struct
 
 import numpy as np
@@ -22,7 +24,11 @@ from google.genai import types
 
 from fluentup.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS
 
-CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000  # e.g. 100 ms of 16-bit PCM = 3200 bytes
+CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000
+
+_MAX_RETRIES    = 4
+_RETRY_BASE_SEC = 1.5
+_RETRYABLE      = ("1011", "1012", "1013", "empty", "timeout", "connection", "internal")  # e.g. 100 ms of 16-bit PCM = 3200 bytes
 
 
 # ── WAV → PCM 16 kHz mono ─────────────────────────────────────────────────────
@@ -99,13 +105,37 @@ async def gemini_live_once(
     system_prompt: str,
     wav_bytes:     bytes,
     model:         str = LIVE_MODEL,
-) -> tuple[str, str]:
+) -> tuple[str, str, bytes]:
     """
-    Open a Gemini Live session, send pre-recorded WAV audio as a single push-to-talk
-    turn, and collect (input_transcript, ai_text_response).
+    Send pre-recorded WAV to Gemini Live (AUDIO modality — its native mode).
+    Returns (input_transcript, output_transcript, audio_pcm_bytes).
 
-    The session is closed after the model's first turn_complete.
+    - input_transcript : what the user said (input_audio_transcription)
+    - output_transcript: model's spoken reply as text (output_audio_transcription)
+    - audio_pcm_bytes  : raw PCM of the model's audio response (for optional playback)
+
+    Retries up to _MAX_RETRIES times on transient 1011/connection errors.
     """
+    last_exc: Exception | None = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            return await _gemini_live_once_attempt(api_key, system_prompt, wav_bytes, model)
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc).lower()
+            if not any(tag in msg for tag in _RETRYABLE) or attempt == _MAX_RETRIES:
+                raise
+            delay = _RETRY_BASE_SEC * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+            await asyncio.sleep(delay)
+    raise last_exc  # type: ignore[misc]
+
+
+async def _gemini_live_once_attempt(
+    api_key:       str,
+    system_prompt: str,
+    wav_bytes:     bytes,
+    model:         str,
+) -> tuple[str, str, bytes]:
     pcm = wav_to_pcm16k(wav_bytes)
 
     client = genai.Client(
@@ -114,24 +144,27 @@ async def gemini_live_once(
     )
 
     cfg_kwargs: dict = dict(
-        response_modalities=[types.Modality.TEXT],
+        # AUDIO is the native Live modality — avoids 1011 errors from TEXT forcing
+        response_modalities=[types.Modality.AUDIO],
         input_audio_transcription=types.AudioTranscriptionConfig(),
+        output_audio_transcription=types.AudioTranscriptionConfig(),
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
         ),
+        thinking_config=types.ThinkingConfig(include_thoughts=False),
     )
     if system_prompt.strip():
         cfg_kwargs["system_instruction"] = types.Content(
             parts=[types.Part.from_text(text=system_prompt)]
         )
 
-    input_transcript = ""
-    ai_response      = ""
+    input_transcript  = ""
+    output_transcript = ""
+    audio_chunks:  list[bytes] = []
 
     async with client.aio.live.connect(
         model=model, config=types.LiveConnectConfig(**cfg_kwargs)
     ) as session:
-        # ── Push audio as a complete turn ─────────────────────────────────────
         await session.send_realtime_input(activity_start=types.ActivityStart())
 
         for offset in range(0, len(pcm), CHUNK_BYTES):
@@ -144,7 +177,6 @@ async def gemini_live_once(
 
         await session.send_realtime_input(activity_end=types.ActivityEnd())
 
-        # ── Collect response ──────────────────────────────────────────────────
         async for response in session.receive():
             if getattr(response, "go_away", None) is not None:
                 break
@@ -153,25 +185,35 @@ async def gemini_live_once(
             if sc is None:
                 continue
 
-            # Input transcript (what the user said)
+            # User's speech → input_audio_transcription
             it = getattr(sc, "input_transcription", None)
             if it:
-                text = getattr(it, "text", None)
-                if text:
-                    input_transcript += text
+                t = getattr(it, "text", None)
+                if t:
+                    input_transcript += t
 
-            # Model text output (evaluation JSON or response text)
+            # Model's spoken reply → output_audio_transcription + audio PCM
+            ot = getattr(sc, "output_transcription", None)
+            if ot:
+                t = getattr(ot, "text", None)
+                if t:
+                    output_transcript += t
+
             mt = getattr(sc, "model_turn", None)
             if mt:
                 for part in getattr(mt, "parts", []) or []:
-                    text = getattr(part, "text", None)
-                    if text:
-                        ai_response += text
+                    inline = getattr(part, "inline_data", None)
+                    if inline and getattr(inline, "data", None):
+                        audio_chunks.append(inline.data)
 
             if getattr(sc, "turn_complete", False):
                 break
 
-    return input_transcript.strip(), ai_response.strip()
+    return (
+        input_transcript.strip(),
+        output_transcript.strip(),
+        b"".join(audio_chunks),
+    )
 
 
 # ── TTS via Gemini Live AUDIO output ─────────────────────────────────────────

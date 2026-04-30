@@ -16,6 +16,7 @@ class BandScore:
 class EvaluationResult:
     transcript: str
     scores: list[BandScore]
+    criterion_audio: dict[str, bytes] = field(default_factory=dict)  # criterion → WAV bytes
 
     @property
     def overall_band(self) -> float:
