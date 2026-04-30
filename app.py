@@ -297,7 +297,7 @@ def _render_home() -> None:
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("Start Part 1", use_container_width=True, key="start_p1", use_container_width=True):
+        if st.button("Start Part 1", key="start_p1", use_container_width=True):
             st.session_state.session.phase = "part1_loading"
             st.rerun()
 
@@ -310,7 +310,7 @@ def _render_home() -> None:
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("Start Part 2", use_container_width=True, key="start_p2", use_container_width=True):
+        if st.button("Start Part 2", key="start_p2", use_container_width=True):
             st.session_state.session.phase = "part2_idle"
             st.rerun()
 
@@ -323,7 +323,7 @@ def _render_home() -> None:
             "</div>",
             unsafe_allow_html=True,
         )
-        if st.button("Start Part 3", use_container_width=True, key="start_p3", use_container_width=True):
+        if st.button("Start Part 3", key="start_p3", use_container_width=True):
             st.session_state.session.phase = "part3_loading"
             st.rerun()
 
