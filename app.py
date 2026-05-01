@@ -73,15 +73,14 @@ def _init_state(secrets: dict) -> None:
             st.session_state.question_gen = None
     if "store" not in st.session_state:
         if secrets["mongodb_uri"] and secrets["mongodb_username"]:
-            # Create Motor client on the background loop so its internal Futures
-            # are bound to the same loop used for all async operations.
-            async def _make_store():
-                return FluentUpStore(
-                    uri=secrets["mongodb_uri"],
-                    username=secrets["mongodb_username"],
-                    password=secrets["mongodb_password"],
-                )
-            st.session_state.store = _run_async(_make_store())
+            # Ensure the bg loop exists before creating the Motor client,
+            # so the client binds to the same loop used for all store operations.
+            _get_bg_loop()
+            st.session_state.store = FluentUpStore(
+                uri=secrets["mongodb_uri"],
+                username=secrets["mongodb_username"],
+                password=secrets["mongodb_password"],
+            )
         else:
             st.session_state.store = None
 
@@ -129,11 +128,31 @@ _bg_thread: threading.Thread | None = None
 
 
 def _get_bg_loop() -> asyncio.AbstractEventLoop:
+    """
+    Return a long-lived background event loop, stored in st.session_state so it
+    survives Streamlit reruns (which reset module-level globals to None).
+    A new loop is only created when no running loop exists yet for this browser session.
+    """
     global _bg_loop, _bg_thread
-    if _bg_loop is None or not _bg_loop.is_running():
-        _bg_loop = asyncio.new_event_loop()
-        _bg_thread = threading.Thread(target=_bg_loop.run_forever, daemon=True)
-        _bg_thread.start()
+
+    # Prefer the loop stored in session_state (survives reruns)
+    persisted = st.session_state.get("_bg_loop")
+    if persisted is not None and persisted.is_running():
+        _bg_loop = persisted
+        return _bg_loop
+
+    # Module global still alive (same Python process, same Streamlit worker thread)
+    if _bg_loop is not None and _bg_loop.is_running():
+        st.session_state["_bg_loop"] = _bg_loop
+        return _bg_loop
+
+    # Need a fresh loop — also invalidate store so Motor re-binds to the new loop
+    _bg_loop = asyncio.new_event_loop()
+    _bg_thread = threading.Thread(target=_bg_loop.run_forever, daemon=True)
+    _bg_thread.start()
+    st.session_state["_bg_loop"] = _bg_loop
+    # Invalidate store: its Motor client is bound to the old (now-dead) loop
+    st.session_state.pop("store", None)
     return _bg_loop
 
 
