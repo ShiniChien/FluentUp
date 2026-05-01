@@ -10,12 +10,12 @@ import openai
 
 from fluentup.prompts import (
     CUE_CARD_PROMPT,
-    PART1_OPENING_QUESTION_PROMPT,
     PART3_QUESTION_PROMPT,
     PART3_RANDOM_QUESTION_PROMPT,
 )
 from fluentup.models import CueCard
 from fluentup.live_session import gemini_live_speak, gemini_live_next_question
+from fluentup.question_bank import pick_opening_question
 from fluentup.config import (
     EXAMINER_ACCENTS,
     DEFAULT_ACCENT,
@@ -95,10 +95,10 @@ class QuestionGenerator:
         return (resp.choices[0].message.content or "").strip()
 
     async def generate_part1_questions(self, n: int = 1, profile: "UserProfile | None" = None) -> list[str]:
-        """Generate the opening Part 1 question via LLM. n is kept for API compatibility."""
-        ctx = profile.prompt_context() if profile else ""
-        question = (await self._chat(ctx + PART1_OPENING_QUESTION_PROMPT)).strip().strip('"')
-        return [question] if question else ["What do you enjoy doing in your free time?"]
+        """Pick the opening Part 1 question from the local bank (no LLM call needed)."""
+        occupation = profile.occupation if profile else ""
+        _, question = pick_opening_question(profile_occupation=occupation)
+        return [question]
 
     async def generate_next_part1_question(
         self,
