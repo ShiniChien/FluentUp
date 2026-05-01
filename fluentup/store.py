@@ -108,6 +108,7 @@ class FluentUpStore:
             "age":                profile.age,
             "occupation":         profile.occupation,
             "occupation_detail":  profile.occupation_detail,
+            "gender":             profile.gender,
             "updated_at":         datetime.datetime.utcnow(),
         }
         if profile.profile_id:

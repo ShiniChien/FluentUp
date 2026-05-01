@@ -216,6 +216,28 @@ async def _gemini_live_once_attempt(
     )
 
 
+async def gemini_transcribe_only(
+    api_key:   str,
+    wav_bytes: bytes,
+    model:     str = LIVE_MODEL,
+) -> str:
+    """
+    Send WAV to Gemini Live and return only the input_audio_transcription.
+    No evaluation, no audio response — used for profile setup Q&A.
+    """
+    transcript, _, _ = await gemini_live_once(
+        api_key=api_key,
+        system_prompt=(
+            "You are a transcription assistant. "
+            "Listen carefully and transcribe exactly what the user says. "
+            "Do not add any commentary or evaluation."
+        ),
+        wav_bytes=wav_bytes,
+        model=model,
+    )
+    return transcript
+
+
 # ── Next question generation via Gemini Live ─────────────────────────────────
 
 async def gemini_live_next_question(
