@@ -102,6 +102,21 @@ def _band_color(band: float) -> str:
     return "#B71C1C"       # dark red
 
 
+_BAND_LIGHT_BG: dict[str, str] = {
+    "#00695C": "#E0F2F1",
+    "#2E7D32": "#E8F5E9",
+    "#558B2F": "#F1F8E9",
+    "#E65100": "#FFF3E0",
+    "#BF360C": "#FBE9E7",
+    "#B71C1C": "#FFEBEE",
+}
+
+
+def _band_light_bg(color: str) -> str:
+    """Light background tint for a band color — suitable for dark text."""
+    return _BAND_LIGHT_BG.get(color, "#F5F5F5")
+
+
 def _band_bar(band: float) -> str:
     fill = round(band / 9.0 * 20)
     empty = 20 - fill
@@ -154,9 +169,9 @@ def _render_sidebar_profile() -> None:
     if current:
         st.markdown(
             f"<div style='background:#E3F2FD;border-left:3px solid #1565C0;"
-            f"padding:6px 10px;border-radius:4px;font-size:0.85em'>"
+            f"padding:6px 10px;border-radius:4px;font-size:0.85em;color:#1a1a1a'>"
             f"<b>{current.name}</b>, {current.age}<br>"
-            f"<span style='color:#555'>{current.occupation_detail[:45]}</span></div>",
+            f"<span style='color:#444'>{current.occupation_detail[:45]}</span></div>",
             unsafe_allow_html=True,
         )
         c1, c2 = st.columns(2)
@@ -528,7 +543,7 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
                 if score.feedback:
                     st.markdown(
                         f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
-                        f"padding:10px 14px;border-radius:4px;font-size:0.95em'>"
+                        f"padding:10px 14px;border-radius:4px;font-size:0.95em;color:#212529'>"
                         f"{score.feedback}</div>",
                         unsafe_allow_html=True,
                     )
@@ -582,8 +597,8 @@ def _render_evaluation(result: EvaluationResult) -> None:
     overall = result.overall_band
     color = _band_color(overall)
     st.markdown(
-        f"<div style='background:{color};color:white;padding:10px 16px;"
-        f"border-radius:8px;font-size:1.2em;font-weight:bold;margin-bottom:12px'>"
+        f"<div style='background:{_band_light_bg(color)};color:{color};border:2px solid {color};"
+        f"padding:10px 16px;border-radius:8px;font-size:1.2em;font-weight:bold;margin-bottom:12px'>"
         f"Overall Band: {overall:.1f} / 9.0</div>",
         unsafe_allow_html=True,
     )
@@ -715,7 +730,7 @@ def _render_home() -> None:
     if profile:
         st.markdown(
             f"<div style='background:#E3F2FD;border-left:4px solid #1565C0;"
-            f"border-radius:6px;padding:10px 16px;margin-bottom:16px'>"
+            f"border-radius:6px;padding:10px 16px;margin-bottom:16px;color:#1a1a1a'>"
             f"👤 <b>{profile.name}</b>, {profile.age} — {profile.occupation_detail}</div>",
             unsafe_allow_html=True,
         )
@@ -903,8 +918,9 @@ def _render_part_averages(evaluated: list) -> dict:
 
     overall = round(sum(avgs.values()) / len(avgs) * 2) / 2
     st.markdown(
-        f"<div style='background:{_band_color(overall)};color:white;"
-        f"padding:12px;border-radius:8px;font-size:1.2em;font-weight:bold'>"
+        f"<div style='background:{_band_light_bg(_band_color(overall))};color:{_band_color(overall)};"
+        f"border:2px solid {_band_color(overall)};padding:12px;border-radius:8px;"
+        f"font-size:1.2em;font-weight:bold'>"
         f"Average Band: {overall:.1f}</div>",
         unsafe_allow_html=True,
     )
@@ -1344,9 +1360,9 @@ def _render_session_summary() -> None:
     overall = summary.overall
     if overall > 0:
         st.markdown(
-            f"<div style='background:{_band_color(overall)};color:white;"
-            f"padding:16px;border-radius:10px;font-size:1.4em;font-weight:bold;"
-            f"text-align:center;margin:12px 0'>"
+            f"<div style='background:{_band_light_bg(_band_color(overall))};color:{_band_color(overall)};"
+            f"border:2px solid {_band_color(overall)};padding:16px;border-radius:10px;"
+            f"font-size:1.4em;font-weight:bold;text-align:center;margin:12px 0'>"
             f"Overall Session Band: {overall:.1f} / 9.0</div>",
             unsafe_allow_html=True,
         )
@@ -1493,7 +1509,8 @@ def _render_history_detail(doc: dict) -> None:
         overall = doc.get("overall", 0.0)
         color = _band_color(overall)
         st.markdown(
-            f"<div style='background:{color};color:white;padding:8px 14px;"
+            f"<div style='background:{_band_light_bg(color)};color:{color};"
+            f"border:2px solid {color};padding:8px 14px;"
             f"border-radius:6px;font-weight:bold;margin-bottom:8px'>"
             f"Overall: {overall:.1f}</div>",
             unsafe_allow_html=True,
