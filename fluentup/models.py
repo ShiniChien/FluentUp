@@ -3,6 +3,22 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class UserProfile:
+    name: str
+    age: int
+    occupation: str          # "student" | "worker" | "other"
+    occupation_detail: str   # e.g. "studying Computer Science at HUST"
+    profile_id: str = ""
+
+    def prompt_context(self) -> str:
+        """One-line context string injected into LLM prompts."""
+        return (
+            f"Candidate: {self.name}, {self.age} years old, {self.occupation_detail}. "
+            f"Tailor topics to be relevant to their background.\n\n"
+        )
+
+
+@dataclass
 class BandScore:
     criterion: str  # "FC", "LR", "GR", "Pronunciation"
     band: float     # 1.0 - 9.0, step 0.5

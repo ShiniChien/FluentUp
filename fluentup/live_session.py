@@ -224,6 +224,7 @@ async def gemini_live_next_question(
     answer_wav: bytes,
     model: str = LIVE_MODEL,
     accent_instruction: str = "",
+    profile_ctx: str = "",
 ) -> tuple[str, bytes]:
     """
     Generate the next IELTS Part 1 question by sending the previous question (as
@@ -231,7 +232,11 @@ async def gemini_live_next_question(
 
     Returns (question_text, question_wav) where question_wav is a WAV file.
     """
-    context = (f"{accent_instruction}\n\n" if accent_instruction.strip() else "")
+    context = ""
+    if accent_instruction.strip():
+        context += accent_instruction + "\n\n"
+    if profile_ctx.strip():
+        context += profile_ctx
     system_prompt = (
         context
         + f'The previous IELTS Part 1 question you asked was: "{prev_question}"\n'

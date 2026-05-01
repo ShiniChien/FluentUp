@@ -13,7 +13,7 @@ import time
 import streamlit as st
 
 from fluentup.exam_session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
-from fluentup.models import BandScore, EvaluationResult, Turn
+from fluentup.models import BandScore, EvaluationResult, Turn, UserProfile
 from fluentup.evaluator import LiveEvaluationPipeline, CRITERIA
 from fluentup.question_gen import QuestionGenerator
 from fluentup.store import FluentUpStore
@@ -145,10 +145,97 @@ def _hear_question(question: str, key: str) -> None:
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
-def _render_sidebar(secrets: dict) -> None:
+def _render_sidebar_profile() -> None:
+    st.markdown("**Your Profile**")
+    store: FluentUpStore | None = st.session_state.get("store")
+    current: UserProfile | None = st.session_state.get("user_profile")
+    sess: ExamSession = st.session_state.session
+
+    if current:
+        st.markdown(
+            f"<div style='background:#E3F2FD;border-left:3px solid #1565C0;"
+            f"padding:6px 10px;border-radius:4px;font-size:0.85em'>"
+            f"<b>{current.name}</b>, {current.age}<br>"
+            f"<span style='color:#555'>{current.occupation_detail[:45]}</span></div>",
+            unsafe_allow_html=True,
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Edit", key="sb_edit_profile", use_container_width=True):
+                sess.phase = "intro"
+                st.rerun()
+        with c2:
+            if st.button("Clear", key="sb_clear_profile", use_container_width=True):
+                st.session_state.pop("user_profile", None)
+                st.rerun()
+    else:
+        if st.button("Set up profile", key="sb_create_profile", use_container_width=True):
+            sess.phase = "intro"
+            st.rerun()
+
+    # Saved profiles picker (requires MongoDB)
+    if store:
+        if "sidebar_profiles_cache" not in st.session_state:
+            try:
+                st.session_state["sidebar_profiles_cache"] = _run_async(store.get_profiles())
+            except Exception:
+                st.session_state["sidebar_profiles_cache"] = []
+
+        profiles: list[dict] = st.session_state.get("sidebar_profiles_cache", [])
+        if profiles:
+            options_ids = [""] + [p["_id"] for p in profiles]
+            current_id = current.profile_id if current else ""
+            try:
+                sel_index = options_ids.index(current_id)
+            except ValueError:
+                sel_index = 0
+
+            def _fmt(pid: str) -> str:
+                if not pid:
+                    return "— select saved profile —"
+                p = next((x for x in profiles if x["_id"] == pid), None)
+                return f"{p['name']}, {p['age']} — {p.get('occupation_detail','')[:30]}" if p else pid
+
+            selected = st.selectbox(
+                "Saved profiles",
+                options=options_ids,
+                format_func=_fmt,
+                index=sel_index,
+                key="sb_profile_select",
+                label_visibility="collapsed",
+            )
+            if selected and selected != current_id:
+                p = next((x for x in profiles if x["_id"] == selected), None)
+                if p:
+                    st.session_state["user_profile"] = UserProfile(
+                        name=p["name"],
+                        age=p["age"],
+                        occupation=p.get("occupation", "other"),
+                        occupation_detail=p.get("occupation_detail", ""),
+                        profile_id=p["_id"],
+                    )
+                    st.rerun()
+
+            # Delete button for selected saved profile
+            if selected:
+                if st.button("Delete this profile", key="sb_del_profile", use_container_width=True):
+                    try:
+                        _run_async(store.delete_profile(selected))
+                        if current and current.profile_id == selected:
+                            st.session_state.pop("user_profile", None)
+                        st.session_state.pop("sidebar_profiles_cache", None)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Delete failed: {e}")
+
+
+
     with st.sidebar:
         st.markdown("## FluentUp")
         st.caption("IELTS Speaking Practice")
+
+        st.divider()
+        _render_sidebar_profile()
 
         st.divider()
         st.markdown("**Examiner Accent**")
@@ -313,6 +400,7 @@ def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
     if qgen is None:
         return
     accent = st.session_state.get("examiner_accent", DEFAULT_ACCENT)
+    profile: UserProfile | None = st.session_state.get("user_profile")
     # Sentinel: ready=False means still generating
     st.session_state["p1_next_q"] = {"ready": False, "text": "", "wav": b""}
 
@@ -322,12 +410,74 @@ def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
                 prev_question=prev_question,
                 answer_wav=answer_wav,
                 accent=accent,
+                profile=profile,
             ))
             st.session_state["p1_next_q"] = {"ready": True, "text": text, "wav": wav}
         except Exception as exc:
             st.session_state["p1_next_q"] = {"ready": True, "text": "", "wav": b"", "error": str(exc)}
 
     threading.Thread(target=_worker, daemon=True).start()
+
+
+def _start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
+    """Start background evaluation for a turn without blocking the UI."""
+    evaluator: LiveEvaluationPipeline | None = st.session_state.get("evaluator")
+    if evaluator is None:
+        return
+    turn_evals: dict = st.session_state.setdefault("turn_evals", {})
+    partial: dict = {}
+    errors: dict = {}
+    turn_evals[turn_idx] = {"partial": partial, "errors": errors}
+
+    def _worker(criterion: str) -> None:
+        try:
+            score, _, wav = asyncio.run(evaluator.eval_one(
+                criterion=criterion,
+                audio_bytes=turn.audio_bytes,
+                question=turn.question,
+                part=part,
+            ))
+            partial[criterion] = {"score": score, "wav": wav}
+        except Exception as exc:
+            errors[criterion] = str(exc)
+
+    for c in CRITERIA:
+        threading.Thread(target=_worker, args=(c,), daemon=True).start()
+
+
+def _assemble_bg_evals(sess) -> int:
+    """Assemble completed background evals into turn.result. Returns pending count."""
+    turn_evals: dict = st.session_state.get("turn_evals", {})
+    pending = 0
+    for i, turn in enumerate(sess.turns):
+        if turn.result is not None:
+            continue
+        state = turn_evals.get(i)
+        if state is None:
+            continue
+        partial = state["partial"]
+        errors = state["errors"]
+        if len(partial) + len(errors) < len(CRITERIA):
+            pending += 1
+            continue
+        scores = []
+        criterion_audio: dict = {}
+        for c in CRITERIA:
+            if c in partial:
+                item = partial[c]
+                scores.append(item["score"])
+                if item["wav"]:
+                    criterion_audio[c] = item["wav"]
+            else:
+                scores.append(BandScore(
+                    criterion=c, band=0.0,
+                    feedback=errors.get(c, "Failed"),
+                    tips=[], weak_points=[],
+                ))
+        turn.result = EvaluationResult(
+            transcript="", scores=scores, criterion_audio=criterion_audio,
+        )
+    return pending
 
 
 def _render_streaming_eval(turn: Turn, part: int) -> bool:
@@ -375,8 +525,7 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
                     if autoplay:
                         played.add(criterion)
                         st.session_state["eval_auto_played"] = played
-                elif score.feedback:
-                    # No audio from Gemini Live — show spoken evaluation as text
+                if score.feedback:
                     st.markdown(
                         f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
                         f"padding:10px 14px;border-radius:4px;font-size:0.95em'>"
@@ -469,14 +618,114 @@ def _render_evaluation(result: EvaluationResult) -> None:
     )
 
 
+# ── Intro / Profile setup ─────────────────────────────────────────────────────
+
+_OCC_LABELS = {"student": "Studying", "worker": "Working", "other": "Other"}
+_OCC_DETAIL_LABELS = {
+    "student": "What are you studying?",
+    "worker":  "What do you do for work?",
+    "other":   "Tell us more about yourself",
+}
+
+
+def _render_intro() -> None:
+    sess: ExamSession = st.session_state.session
+    store: FluentUpStore | None = st.session_state.get("store")
+
+    st.header("Introduce Yourself")
+    st.markdown(
+        "Tell us a bit about yourself so we can ask questions that feel relevant to your life."
+    )
+    st.markdown("---")
+
+    current: UserProfile | None = st.session_state.get("user_profile")
+
+    name = st.text_input(
+        "What's your name?",
+        value=current.name if current else "",
+        key="intro_name",
+        placeholder="e.g. Minh",
+    )
+    age = st.number_input(
+        "How old are you?",
+        min_value=10, max_value=80,
+        value=int(current.age) if current else 22,
+        key="intro_age",
+    )
+    occ_options = list(_OCC_LABELS.keys())
+    occ_index = occ_options.index(current.occupation) if current and current.occupation in occ_options else 0
+    occupation = st.radio(
+        "Are you currently…",
+        options=occ_options,
+        format_func=lambda x: _OCC_LABELS[x],
+        index=occ_index,
+        horizontal=True,
+        key="intro_occ",
+    )
+    detail = st.text_input(
+        _OCC_DETAIL_LABELS[occupation],
+        value=current.occupation_detail if current else "",
+        key="intro_detail",
+        placeholder={
+            "student": "e.g. Computer Science at HUST",
+            "worker":  "e.g. Software engineer at a tech startup",
+            "other":   "e.g. Recently graduated, preparing for IELTS",
+        }[occupation],
+    )
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Save Profile", type="primary", use_container_width=True):
+            if not name.strip():
+                st.warning("Please enter your name.")
+            else:
+                profile = UserProfile(
+                    name=name.strip(),
+                    age=int(age),
+                    occupation=occupation,
+                    occupation_detail=detail.strip(),
+                    profile_id=current.profile_id if current else "",
+                )
+                if store:
+                    try:
+                        pid = _run_async(store.save_profile(profile))
+                        profile.profile_id = pid
+                    except Exception as e:
+                        st.warning(f"Could not save to MongoDB: {e}")
+                st.session_state["user_profile"] = profile
+                st.session_state.pop("sidebar_profiles_cache", None)
+                sess.phase = "home"
+                st.rerun()
+    with col2:
+        if st.button("Skip", use_container_width=True):
+            sess.phase = "home"
+            st.rerun()
+
+
 # ── Part selector (home) ──────────────────────────────────────────────────────
 
 def _render_home() -> None:
     st.title("FluentUp")
     st.subheader("IELTS Speaking Practice")
+
+    profile: UserProfile | None = st.session_state.get("user_profile")
+    sess: ExamSession = st.session_state.session
+
+    if profile:
+        st.markdown(
+            f"<div style='background:#E3F2FD;border-left:4px solid #1565C0;"
+            f"border-radius:6px;padding:10px 16px;margin-bottom:16px'>"
+            f"👤 <b>{profile.name}</b>, {profile.age} — {profile.occupation_detail}</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info(
+            "💡 Set up your profile in the sidebar so questions can be tailored to your background."
+        )
+
     st.markdown("Choose a part to start practicing:")
 
-    sess: ExamSession = st.session_state.session
     has_part2 = bool(sess.part2_topic)
 
     col1, col2, col3 = st.columns(3)
@@ -549,7 +798,8 @@ def _render_part1_loading() -> None:
 
     with st.spinner("Loading first question..."):
         try:
-            questions = _run_async(qgen.generate_part1_questions(n=1))
+            profile: UserProfile | None = st.session_state.get("user_profile")
+            questions = _run_async(qgen.generate_part1_questions(n=1, profile=profile))
             sess.part1_questions = questions
             sess.part1_index = 0
             st.session_state.pop("p1_next_q", None)
@@ -563,11 +813,36 @@ def _render_part1_loading() -> None:
 
 def _render_part1_idle() -> None:
     sess: ExamSession = st.session_state.session
-    question = sess.current_part1_question()
     idx = sess.part1_index
     max_q = PART1_QUESTIONS_PER_SESSION
 
     st.header("Part 1 — Introduction & Interview")
+
+    # Wait for next question to finish generating
+    next_q: dict | None = st.session_state.get("p1_next_q")
+    if next_q is not None and not next_q.get("ready", False):
+        st.caption(f"Question {idx + 1} (up to {max_q})")
+        st.progress(idx / max_q)
+        st.info("Preparing next question...")
+        time.sleep(0.5)
+        st.rerun()
+        return
+
+    # Consume ready next question and re-enter to render it
+    if next_q is not None and next_q.get("ready", False):
+        if next_q.get("error"):
+            st.warning(f"Could not generate next question: {next_q['error']}")
+        q_text = next_q.get("text", "").strip()
+        q_wav = next_q.get("wav", b"")
+        if q_text:
+            sess.part1_questions.append(q_text)
+            if q_wav:
+                st.session_state["p1_next_q_wav"] = q_wav
+        st.session_state.pop("p1_next_q", None)
+        st.rerun()
+        return
+
+    question = sess.current_part1_question()
     st.caption(f"Question {idx + 1} (up to {max_q})")
     st.progress(idx / max_q)
 
@@ -599,136 +874,24 @@ def _render_part1_idle() -> None:
                 st.warning("Recording too short. Please try again.")
             else:
                 sess.turns.append(Turn(part=1, question=question, audio_bytes=wav_bytes))
+                turn_idx = len(sess.turns) - 1
                 sess.part1_index += 1
-                _clear_streaming_state()
-                # Start next question generation in parallel with evaluation
+                _start_bg_turn_eval(sess.turns[turn_idx], turn_idx, part=1)
                 if sess.part1_index < max_q:
                     _start_next_question_gen(question, wav_bytes)
                 else:
                     st.session_state.pop("p1_next_q", None)
-                sess.phase = "part1_feedback"
                 st.rerun()
     with col2:
         if st.button("Skip", key=f"p1_skip_{idx}", use_container_width=True):
             sess.part1_index += 1
-            p1_turns = sess.part_turns(1)
             if sess.part1_index >= max_q or not sess.current_part1_question():
-                sess.phase = "part1_evaluating" if p1_turns else "part1_summary"
+                sess.phase = "part1_summary"
             st.rerun()
     with col3:
         if st.button("End Part 1", key=f"p1_end_{idx}", use_container_width=True):
-            p1_turns = sess.part_turns(1)
-            sess.phase = "part1_evaluating" if p1_turns else "part1_summary"
+            sess.phase = "part1_summary"
             st.rerun()
-
-
-def _render_part1_feedback() -> None:
-    """Evaluate the most recent Part 1 answer and show feedback before next question."""
-    sess: ExamSession = st.session_state.session
-    p1_turns = sess.part_turns(1)
-
-    if not p1_turns:
-        sess.phase = "part1_idle"
-        st.rerun()
-        return
-
-    # The turn that was just recorded (last unevaluated)
-    unevaluated = [t for t in p1_turns if t.result is None]
-    if not unevaluated:
-        # All evaluated unexpectedly — go forward
-        sess.phase = "part1_summary" if sess.part1_index >= PART1_QUESTIONS_PER_SESSION else "part1_idle"
-        st.rerun()
-        return
-
-    turn = unevaluated[-1]  # the one just submitted
-    idx_label = len(p1_turns)
-    max_q = PART1_QUESTIONS_PER_SESSION
-
-    st.header("Part 1 — Examiner Feedback")
-    st.caption(f"Question {idx_label} of up to {max_q}")
-
-    st.markdown(
-        f"<div style='border-left:4px solid #1565C0;border-radius:6px;padding:12px 20px;"
-        f"font-size:1.1em;color:#555;margin:12px 0'><b>Question:</b> {turn.question}</div>",
-        unsafe_allow_html=True,
-    )
-
-    # Playback of user's answer
-    st.markdown("**Your answer:**")
-    st.audio(turn.audio_bytes, format="audio/wav")
-
-    st.markdown("---")
-
-    done = _render_streaming_eval(turn, part=1)
-
-    if done:
-        st.markdown("---")
-        at_max = sess.part1_index >= max_q
-
-        if at_max:
-            if st.button("View Part 1 Summary", type="primary", use_container_width=True):
-                _clear_streaming_state()
-                st.session_state.pop("p1_next_q", None)
-                sess.phase = "part1_summary"
-                st.rerun()
-        else:
-            # Check if next question is ready
-            next_q: dict | None = st.session_state.get("p1_next_q")
-            if next_q is None or not next_q.get("ready", False):
-                st.info("Generating next question…")
-                time.sleep(0.6)
-                st.rerun()
-            else:
-                if next_q.get("error"):
-                    st.warning(f"Could not generate next question: {next_q['error']}")
-                if st.button("Next Question →", type="primary", use_container_width=True):
-                    # Append the generated question to the list
-                    q_text = next_q.get("text", "").strip()
-                    q_wav = next_q.get("wav", b"")
-                    if q_text:
-                        sess.part1_questions.append(q_text)
-                        if q_wav:
-                            st.session_state["p1_next_q_wav"] = q_wav
-                    st.session_state.pop("p1_next_q", None)
-                    _clear_streaming_state()
-                    if q_text:
-                        sess.phase = "part1_idle"
-                    else:
-                        sess.phase = "part1_summary"
-                    st.rerun()
-
-
-def _render_part1_evaluating() -> None:
-    sess: ExamSession = st.session_state.session
-    p1_turns = sess.part_turns(1)
-
-    if not p1_turns:
-        sess.phase = "part1_summary"
-        st.rerun()
-        return
-
-    unevaluated = [t for t in p1_turns if t.result is None]
-    if not unevaluated:
-        _clear_streaming_state()
-        sess.phase = "part1_summary"
-        st.rerun()
-        return
-
-    turn = unevaluated[0]
-    done_count = len(p1_turns) - len(unevaluated)
-
-    st.header("Part 1 — Evaluating Answers")
-    st.caption(f"Answer {done_count + 1} of {len(p1_turns)}")
-    st.progress(done_count / len(p1_turns))
-
-    st.markdown(
-        f"<div style='border-left:4px solid #1565C0;border-radius:6px;padding:12px 20px;"
-        f"font-size:1.1em;color:#555;margin:12px 0'><b>Question:</b> {turn.question}</div>",
-        unsafe_allow_html=True,
-    )
-
-    if _render_streaming_eval(turn, part=1):
-        st.rerun()
 
 
 def _render_part_averages(evaluated: list) -> dict:
@@ -766,6 +929,17 @@ def _render_part1_summary() -> None:
     p1_turns = sess.part_turns(1)
 
     st.header("Part 1 Summary")
+
+    # Assemble any completed background evaluations, wait for pending ones
+    pending = _assemble_bg_evals(sess)
+    if pending > 0:
+        evaluated_count = sum(1 for t in p1_turns if t.result is not None)
+        total = len(p1_turns)
+        st.info(f"Evaluating answers in background… ({evaluated_count}/{total} complete)")
+        st.progress(evaluated_count / total if total else 0)
+        time.sleep(0.8)
+        st.rerun()
+        return
 
     if not p1_turns:
         st.info("No answers recorded for Part 1.")
@@ -816,7 +990,9 @@ def _render_part2_idle() -> None:
 
         with st.spinner("Generating cue card..."):
             try:
-                cue = _run_async(qgen.generate_cue_card())
+                cue = _run_async(qgen.generate_cue_card(
+                    profile=st.session_state.get("user_profile"),
+                ))
                 sess.part2_cue_card = cue
                 sess.part2_topic = cue.topic
                 st.rerun()
@@ -1029,6 +1205,7 @@ def _render_part3_loading() -> None:
                 qgen.generate_part3_questions(
                     part2_topic=sess.part2_topic,
                     part2_cue_card=sess.part2_cue_card,
+                    profile=st.session_state.get("user_profile"),
                 )
             )
             sess.part3_questions = questions
@@ -1397,10 +1574,9 @@ def main() -> None:
 
     dispatch = {
         "home":              _render_home,
+        "intro":             _render_intro,
         "part1_loading":     _render_part1_loading,
         "part1_idle":        _render_part1_idle,
-        "part1_feedback":    _render_part1_feedback,
-        "part1_evaluating":  _render_part1_evaluating,
         "part1_summary":     _render_part1_summary,
         "part2_idle":        _render_part2_idle,
         "part2_thinking":    _render_part2_thinking,

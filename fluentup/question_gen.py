@@ -4,11 +4,13 @@ import json
 import random
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import openai
 
 from fluentup.prompts import (
     CUE_CARD_PROMPT,
+    PART1_OPENING_QUESTION_PROMPT,
     PART3_QUESTION_PROMPT,
     PART3_RANDOM_QUESTION_PROMPT,
 )
@@ -18,13 +20,15 @@ from fluentup.config import (
     EXAMINER_ACCENTS,
     DEFAULT_ACCENT,
     DEFAULT_VOICE,
-    PART1_QUESTIONS_PER_SESSION,
     PART3_QUESTIONS_PER_SESSION,
     PART3_TOPICS,
     SEED_WORDS_MIN,
     SEED_WORDS_MAX,
 )
-from fluentup.question_bank import QUESTION_BANK
+
+if TYPE_CHECKING:
+    from fluentup.models import UserProfile
+
 
 _VIET11K_PATH = Path(__file__).parent / "Viet11K.txt"
 _viet_words: list[str] | None = None
@@ -90,31 +94,33 @@ class QuestionGenerator:
         )
         return (resp.choices[0].message.content or "").strip()
 
-    async def generate_part1_questions(self, n: int = 1) -> list[str]:
-        """Pick n questions from the pre-built bank for a random topic.
-        Defaults to 1 (only the first question; subsequent ones are generated dynamically)."""
-        topic = random.choice(list(QUESTION_BANK.keys()))
-        pool = QUESTION_BANK[topic]
-        return random.sample(pool, min(n, len(pool)))
+    async def generate_part1_questions(self, n: int = 1, profile: "UserProfile | None" = None) -> list[str]:
+        """Generate the opening Part 1 question via LLM. n is kept for API compatibility."""
+        ctx = profile.prompt_context() if profile else ""
+        question = (await self._chat(ctx + PART1_OPENING_QUESTION_PROMPT)).strip().strip('"')
+        return [question] if question else ["What do you enjoy doing in your free time?"]
 
     async def generate_next_part1_question(
         self,
         prev_question: str,
         answer_wav: bytes,
         accent: str = DEFAULT_ACCENT,
+        profile: "UserProfile | None" = None,
     ) -> tuple[str, bytes]:
         """Generate Q(n+1) dynamically from Q(n) text + audio of A(n).
         Returns (question_text, question_wav)."""
         accent_instruction = EXAMINER_ACCENTS.get(accent, EXAMINER_ACCENTS[DEFAULT_ACCENT])
+        profile_ctx = profile.prompt_context() if profile else ""
         return await gemini_live_next_question(
             api_key=self._api_key,
             prev_question=prev_question,
             answer_wav=answer_wav,
             model=self._live_model,
             accent_instruction=accent_instruction,
+            profile_ctx=profile_ctx,
         )
 
-    async def generate_cue_card(self) -> CueCard:
+    async def generate_cue_card(self, profile: "UserProfile | None" = None) -> CueCard:
         # Sample 1-3 Vietnamese seed words to diversify the topic
         seeds = _seed_words(random.randint(SEED_WORDS_MIN, SEED_WORDS_MAX))
         seed_hint = ""
@@ -123,7 +129,8 @@ class QuestionGenerator:
                 f"\nFor inspiration, use 1-3 of these Vietnamese concept words as a thematic seed "
                 f"(translate / interpret them freely into an English IELTS topic): {', '.join(seeds)}"
             )
-        text = _strip_fences(await self._chat(CUE_CARD_PROMPT + seed_hint))
+        ctx = profile.prompt_context() if profile else ""
+        text = _strip_fences(await self._chat(ctx + CUE_CARD_PROMPT + seed_hint))
         try:
             data = json.loads(text)
             return CueCard(
@@ -138,7 +145,8 @@ class QuestionGenerator:
                 explain="And explain why you found it particularly interesting.",
             )
 
-    async def generate_part3_questions(self, part2_topic: str, n: int = PART3_QUESTIONS_PER_SESSION, part2_cue_card=None) -> list[str]:
+    async def generate_part3_questions(self, part2_topic: str, n: int = PART3_QUESTIONS_PER_SESSION, part2_cue_card=None, profile: "UserProfile | None" = None) -> list[str]:
+        ctx = profile.prompt_context() if profile else ""
         if part2_topic:
             points_str = ", ".join(part2_cue_card.points) if part2_cue_card else ""
             explain_str = part2_cue_card.explain if part2_cue_card else ""
@@ -152,7 +160,7 @@ class QuestionGenerator:
             topic = random.choice(PART3_TOPICS)
             prompt = PART3_RANDOM_QUESTION_PROMPT.format(topic=topic, n=n)
 
-        text = _strip_fences(await self._chat(prompt))
+        text = _strip_fences(await self._chat(ctx + prompt))
         try:
             questions = json.loads(text)
             if isinstance(questions, list):

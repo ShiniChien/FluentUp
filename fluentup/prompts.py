@@ -3,6 +3,12 @@ from __future__ import annotations
 
 # ── Question generation prompts ───────────────────────────────────────────────
 
+PART1_OPENING_QUESTION_PROMPT = """You are an IELTS Speaking examiner starting a Part 1 interview.
+Generate ONE natural opening question to begin the interview.
+Pick a common everyday topic such as: hometown, work or studies, hobbies, food, travel, \
+daily routine, weather, technology, family, sports, music, reading, shopping, transport, or festivals.
+Return ONLY the question — no preamble, no topic label, just the question itself."""
+
 CUE_CARD_PROMPT = """You are an IELTS Speaking examiner.
 Generate an IELTS Speaking Part 2 cue card. The topic MUST be about exactly ONE of these broad categories:
 - A person (e.g. "Describe a person who has had a positive influence on you")

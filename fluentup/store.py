@@ -3,18 +3,22 @@ fluentup/store.py
 -----------------
 MongoDB persistence layer via motor (async).
 
-Collection:
+Collections:
   sessions — completed exam sessions (scores, transcripts, no audio bytes)
+  profiles — user profiles (name, age, occupation)
 """
 from __future__ import annotations
 
 import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from fluentup.models import ExamSummary
+
+if TYPE_CHECKING:
+    from fluentup.models import UserProfile
 
 
 class FluentUpStore:
@@ -27,6 +31,7 @@ class FluentUpStore:
         )
         db = self._client["fluentup"]
         self._sessions = db["sessions"]
+        self._profiles = db["profiles"]
 
     async def save_session(
         self, summary: ExamSummary, user_id: str = "default"
@@ -93,3 +98,38 @@ class FluentUpStore:
             return True
         except Exception:
             return False
+
+    # ── Profile CRUD ──────────────────────────────────────────────────────────
+
+    async def save_profile(self, profile: "UserProfile") -> str:
+        """Insert or update a profile. Updates in-place if profile_id is set."""
+        doc: dict[str, Any] = {
+            "name":               profile.name,
+            "age":                profile.age,
+            "occupation":         profile.occupation,
+            "occupation_detail":  profile.occupation_detail,
+            "updated_at":         datetime.datetime.utcnow(),
+        }
+        if profile.profile_id:
+            await self._profiles.update_one(
+                {"_id": ObjectId(profile.profile_id)},
+                {"$set": doc},
+                upsert=True,
+            )
+            return profile.profile_id
+        doc["created_at"] = doc["updated_at"]
+        result = await self._profiles.insert_one(doc)
+        return str(result.inserted_id)
+
+    async def get_profiles(self, limit: int = 20) -> list[dict]:
+        cursor = self._profiles.find(
+            {}, sort=[("updated_at", -1)], limit=limit
+        )
+        docs = await cursor.to_list(length=limit)
+        for d in docs:
+            d["_id"] = str(d["_id"])
+        return docs
+
+    async def delete_profile(self, profile_id: str) -> bool:
+        result = await self._profiles.delete_one({"_id": ObjectId(profile_id)})
+        return result.deleted_count > 0

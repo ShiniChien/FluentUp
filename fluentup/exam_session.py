@@ -9,7 +9,8 @@ from fluentup.config import PREP_SECONDS, SPEAK_SECONDS  # noqa: F401 – re-exp
 
 Phase = Literal[
     "home",
-    "part1_loading", "part1_idle", "part1_feedback", "part1_evaluating", "part1_summary",
+    "intro",
+    "part1_loading", "part1_idle", "part1_summary",
     "part2_idle", "part2_thinking", "part2_recording", "part2_evaluating", "part2_result",
     "part3_loading", "part3_idle", "part3_result", "part3_summary",
     "session_summary",
