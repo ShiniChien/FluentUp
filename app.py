@@ -229,7 +229,7 @@ def _render_sidebar_profile() -> None:
                         st.error(f"Delete failed: {e}")
 
 
-
+def _render_sidebar(secrets: dict) -> None:
     with st.sidebar:
         st.markdown("## FluentUp")
         st.caption("IELTS Speaking Practice")
