@@ -438,8 +438,11 @@ def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
         return
     accent = st.session_state.get("examiner_accent", DEFAULT_ACCENT)
     profile: UserProfile | None = st.session_state.get("user_profile")
-    # Sentinel: ready=False means still generating
-    st.session_state["p1_next_q"] = {"ready": False, "text": "", "wav": b""}
+    # Store a plain dict in session_state BEFORE starting the thread.
+    # The thread mutates the dict in-place — never touches st.session_state directly,
+    # which would fail with "missing ScriptRunContext" from a non-main thread.
+    result: dict = {"ready": False, "text": "", "wav": b""}
+    st.session_state["p1_next_q"] = result
 
     def _worker() -> None:
         try:
@@ -449,9 +452,12 @@ def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
                 accent=accent,
                 profile=profile,
             ))
-            st.session_state["p1_next_q"] = {"ready": True, "text": text, "wav": wav}
+            result["text"] = text
+            result["wav"] = wav
         except Exception as exc:
-            st.session_state["p1_next_q"] = {"ready": True, "text": "", "wav": b"", "error": str(exc)}
+            result["error"] = str(exc)
+        finally:
+            result["ready"] = True
 
     threading.Thread(target=_worker, daemon=True).start()
 
