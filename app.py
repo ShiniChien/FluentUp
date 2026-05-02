@@ -13,7 +13,7 @@ import time
 import streamlit as st
 
 from fluentup.exam_session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
-from fluentup.models import EvaluationResult, Turn, UserProfile
+from fluentup.models import CriterionFeedback, EvaluationResult, Turn, UserProfile
 from fluentup.evaluator import LiveEvaluationPipeline, CRITERIA
 from fluentup.question_gen import QuestionGenerator
 from fluentup.live_session import gemini_transcribe_only
@@ -488,7 +488,6 @@ def _assemble_bg_evals(sess) -> int:
         if len(partial) + len(errors) < len(CRITERIA):
             pending += 1
             continue
-        from fluentup.models import CriterionFeedback
         feedbacks = []
         for c in CRITERIA:
             if c in partial:
@@ -499,8 +498,7 @@ def _assemble_bg_evals(sess) -> int:
                     feedback=errors.get(c, "Failed"),
                     audio=b"",
                 ))
-        input_tr = ""
-        turn.result = EvaluationResult(transcript=input_tr, feedbacks=feedbacks)
+        turn.result = EvaluationResult(transcript="", feedbacks=feedbacks)
     return pending
 
 
@@ -509,7 +507,6 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
     Show per-criterion feedback as it arrives.
     Returns True when all 4 criteria are done and turn.result has been assembled.
     """
-    from fluentup.models import CriterionFeedback
     evaluator = st.session_state.get("evaluator")
     if evaluator is None:
         st.error("Gemini API key required for evaluation.")
