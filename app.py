@@ -13,7 +13,7 @@ import time
 import streamlit as st
 
 from fluentup.exam_session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
-from fluentup.models import BandScore, EvaluationResult, Turn, UserProfile
+from fluentup.models import EvaluationResult, Turn, UserProfile
 from fluentup.evaluator import LiveEvaluationPipeline, CRITERIA
 from fluentup.question_gen import QuestionGenerator
 from fluentup.live_session import gemini_transcribe_only
@@ -38,7 +38,7 @@ def _load_secrets() -> dict:
 
 # ── State init ────────────────────────────────────────────────────────────────
 
-_STATE_VERSION = 6
+_STATE_VERSION = 7
 
 
 def _init_state(secrets: dict) -> None:
@@ -115,12 +115,6 @@ _BAND_LIGHT_BG: dict[str, str] = {
 def _band_light_bg(color: str) -> str:
     """Light background tint for a band color — suitable for dark text."""
     return _BAND_LIGHT_BG.get(color, "#F5F5F5")
-
-
-def _band_bar(band: float) -> str:
-    fill = round(band / 9.0 * 20)
-    empty = 20 - fill
-    return "█" * fill + "░" * empty
 
 
 _bg_loop: asyncio.AbstractEventLoop | None = None
@@ -357,19 +351,12 @@ def _render_sidebar_history(store: FluentUpStore) -> None:
         ts = h.get("created_at", "")
         if hasattr(ts, "strftime"):
             ts = ts.strftime("%m-%d %H:%M")
-        overall = h.get("overall", 0.0)
-        color = _band_color(overall)
 
         r1, r2 = st.columns([5, 2])
         with r1:
             st.markdown(
-                f"<div style='border-left:3px solid {color};padding:3px 8px;"
-                f"font-size:0.85em'>"
-                f"<b style='color:{color}'>{overall:.1f}</b> {ts}<br>"
-                f"<span style='color:#888'>FC:{h.get('avg_fc',0):.1f} "
-                f"LR:{h.get('avg_lr',0):.1f} "
-                f"GR:{h.get('avg_gr',0):.1f} "
-                f"PR:{h.get('avg_pronun',0):.1f}</span></div>",
+                f"<div style='border-left:3px solid #1565C0;padding:3px 8px;"
+                f"font-size:0.85em'>{ts}</div>",
                 unsafe_allow_html=True,
             )
         with r2:
@@ -407,8 +394,6 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
     if evaluator is None:
         return
 
-    # Use plain Python dicts — threads must NOT touch st.session_state directly
-    # (it is a thread-local proxy and raises KeyError from non-main threads).
     partial: dict = {}
     errors: dict = {}
     st.session_state["eval_partial"] = partial
@@ -417,13 +402,13 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
 
     def _worker(criterion: str, results: dict, errs: dict) -> None:
         try:
-            score, _, wav = asyncio.run(evaluator.eval_one(
+            feedback, _ = asyncio.run(evaluator.eval_one(
                 criterion=criterion,
                 audio_bytes=turn.audio_bytes,
                 question=turn.question,
                 part=part,
             ))
-            results[criterion] = {"score": score, "wav": wav}
+            results[criterion] = feedback
         except Exception as exc:
             errs[criterion] = str(exc)
 
@@ -474,13 +459,13 @@ def _start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
 
     def _worker(criterion: str) -> None:
         try:
-            score, _, wav = asyncio.run(evaluator.eval_one(
+            feedback, _ = asyncio.run(evaluator.eval_one(
                 criterion=criterion,
                 audio_bytes=turn.audio_bytes,
                 question=turn.question,
                 part=part,
             ))
-            partial[criterion] = {"score": score, "wav": wav}
+            partial[criterion] = feedback
         except Exception as exc:
             errors[criterion] = str(exc)
 
@@ -503,31 +488,28 @@ def _assemble_bg_evals(sess) -> int:
         if len(partial) + len(errors) < len(CRITERIA):
             pending += 1
             continue
-        scores = []
-        criterion_audio: dict = {}
+        from fluentup.models import CriterionFeedback
+        feedbacks = []
         for c in CRITERIA:
             if c in partial:
-                item = partial[c]
-                scores.append(item["score"])
-                if item["wav"]:
-                    criterion_audio[c] = item["wav"]
+                feedbacks.append(partial[c])
             else:
-                scores.append(BandScore(
-                    criterion=c, band=0.0,
+                feedbacks.append(CriterionFeedback(
+                    criterion=c,
                     feedback=errors.get(c, "Failed"),
-                    tips=[], weak_points=[],
+                    audio=b"",
                 ))
-        turn.result = EvaluationResult(
-            transcript="", scores=scores, criterion_audio=criterion_audio,
-        )
+        input_tr = ""
+        turn.result = EvaluationResult(transcript=input_tr, feedbacks=feedbacks)
     return pending
 
 
 def _render_streaming_eval(turn: Turn, part: int) -> bool:
     """
-    Show per-criterion results as they arrive.
-    Returns True when all 4 are done and turn.result has been assembled.
+    Show per-criterion feedback as it arrives.
+    Returns True when all 4 criteria are done and turn.result has been assembled.
     """
+    from fluentup.models import CriterionFeedback
     evaluator = st.session_state.get("evaluator")
     if evaluator is None:
         st.error("Gemini API key required for evaluation.")
@@ -554,37 +536,23 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
 
     for criterion in CRITERIA:
         if criterion in partial:
-            item = partial[criterion]
-            score: BandScore = item["score"]
-            wav: bytes = item["wav"]
-            with st.expander(
-                f"{criterion} — {score.band:.1f}  {_band_bar(score.band)}",
-                expanded=True,
-            ):
-                if wav:
-                    # autoplay first appearance, then normal player
+            fb: CriterionFeedback = partial[criterion]
+            with st.expander(f"**{criterion}**", expanded=True):
+                if fb.audio:
                     autoplay = criterion not in played
-                    st.audio(wav, format="audio/wav", autoplay=autoplay)
+                    st.audio(fb.audio, format="audio/wav", autoplay=autoplay)
                     if autoplay:
                         played.add(criterion)
                         st.session_state["eval_auto_played"] = played
-                if score.feedback:
+                if fb.feedback:
                     st.markdown(
                         f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
                         f"padding:10px 14px;border-radius:4px;font-size:0.95em;color:#212529'>"
-                        f"{score.feedback}</div>",
+                        f"{fb.feedback}</div>",
                         unsafe_allow_html=True,
                     )
-                if score.weak_points:
-                    st.markdown("**Weak points:**")
-                    for wp in score.weak_points:
-                        st.markdown(f"- {wp}")
-                if score.tips:
-                    st.markdown("**Improvements:**")
-                    for tip in score.tips:
-                        st.markdown(f"- {tip}")
         elif criterion in errors:
-            with st.expander(f"{criterion} — Error", expanded=True):
+            with st.expander(f"**{criterion}** — Error", expanded=True):
                 st.error(errors[criterion])
 
     if done_count < total:
@@ -592,27 +560,19 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
         st.rerun()
         return False
 
-    # All done — assemble EvaluationResult and save to turn
-    scores = []
-    criterion_audio: dict[str, bytes] = {}
+    feedbacks = []
+    input_tr = ""
     for criterion in CRITERIA:
         if criterion in partial:
-            item = partial[criterion]
-            scores.append(item["score"])
-            if item["wav"]:
-                criterion_audio[criterion] = item["wav"]
+            feedbacks.append(partial[criterion])
         else:
-            scores.append(BandScore(
-                criterion=criterion, band=0.0,
+            feedbacks.append(CriterionFeedback(
+                criterion=criterion,
                 feedback=errors.get(criterion, "Failed"),
-                examples=[], tips=[], weak_points=[],
+                audio=b"",
             ))
 
-    turn.result = EvaluationResult(
-        transcript="",
-        scores=scores,
-        criterion_audio=criterion_audio,
-    )
+    turn.result = EvaluationResult(transcript=input_tr, feedbacks=feedbacks)
     _clear_streaming_state()
     return True
 
@@ -620,45 +580,38 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
 # ── Evaluation summary display ────────────────────────────────────────────────
 
 def _render_evaluation(result: EvaluationResult) -> None:
-    st.markdown("#### Evaluation Summary")
+    st.markdown("#### Examiner Feedback")
 
-    overall = result.overall_band
-    color = _band_color(overall)
-    st.markdown(
-        f"<div style='background:{_band_light_bg(color)};color:{color};border:2px solid {color};"
-        f"padding:10px 16px;border-radius:8px;font-size:1.2em;font-weight:bold;margin-bottom:12px'>"
-        f"Overall Band: {overall:.1f} / 9.0</div>",
-        unsafe_allow_html=True,
-    )
-
-    cols = st.columns(4)
-    for i, score in enumerate(result.scores):
-        with cols[i]:
-            c = _band_color(score.band)
+    if result.transcript:
+        with st.expander("Your answer (transcript)", expanded=False):
             st.markdown(
-                f"<div style='text-align:center;border:2px solid {c};"
-                f"border-radius:8px;padding:10px'>"
-                f"<b style='color:{c}'>{score.criterion}</b><br>"
-                f"<span style='font-size:1.4em;font-weight:bold'>{score.band:.1f}</span><br>"
-                f"<span style='font-family:monospace;font-size:0.7em'>{_band_bar(score.band)}</span>"
-                f"</div>",
+                f"<div style='background:#f8f9fa;padding:10px 14px;border-radius:4px;"
+                f"font-size:0.9em;color:#555'>{result.transcript}</div>",
                 unsafe_allow_html=True,
             )
 
-    feedback_text = f"Overall Band: {overall:.1f}\n\n"
-    for score in result.scores:
-        feedback_text += f"{score.criterion}: {score.band:.1f}\n"
-        if score.weak_points:
-            feedback_text += "Weak points: " + "; ".join(score.weak_points) + "\n"
-        if score.tips:
-            feedback_text += "Tips: " + "; ".join(score.tips) + "\n"
-        feedback_text += "\n"
-    st.download_button(
-        "Download Feedback",
-        data=feedback_text,
-        file_name="feedback.txt",
-        mime="text/plain",
-    )
+    for fb in result.feedbacks:
+        with st.expander(f"**{fb.criterion}**", expanded=True):
+            if fb.audio:
+                st.audio(fb.audio, format="audio/wav")
+            if fb.feedback:
+                st.markdown(
+                    f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
+                    f"padding:10px 14px;border-radius:4px;font-size:0.95em;color:#212529'>"
+                    f"{fb.feedback}</div>",
+                    unsafe_allow_html=True,
+                )
+
+    feedback_text = ""
+    for fb in result.feedbacks:
+        feedback_text += f"=== {fb.criterion} ===\n{fb.feedback}\n\n"
+    if feedback_text:
+        st.download_button(
+            "Download Feedback",
+            data=feedback_text,
+            file_name="feedback.txt",
+            mime="text/plain",
+        )
 
 
 # ── Intro / Profile setup ─────────────────────────────────────────────────────
@@ -1160,35 +1113,15 @@ def _render_part1_idle() -> None:
             st.rerun()
 
 
-def _render_part_averages(evaluated: list) -> dict:
-    """Compute and render criterion average cards. Returns avgs dict."""
-    avgs = {}
-    for c in CRITERIA:
-        bands = [t.result.get_score(c).band for t in evaluated if t.result.get_score(c)]
-        avgs[c] = round(sum(bands) / len(bands) * 2) / 2 if bands else 0.0
-
-    overall = round(sum(avgs.values()) / len(avgs) * 2) / 2
+def _render_part_averages(evaluated: list) -> None:
+    """Show a simple count of evaluated answers."""
     st.markdown(
-        f"<div style='background:{_band_light_bg(_band_color(overall))};color:{_band_color(overall)};"
-        f"border:2px solid {_band_color(overall)};padding:12px;border-radius:8px;"
-        f"font-size:1.2em;font-weight:bold'>"
-        f"Average Band: {overall:.1f}</div>",
+        f"<div style='background:#E3F2FD;border-left:4px solid #1565C0;"
+        f"padding:10px 16px;border-radius:6px;font-size:1.05em;color:#1a1a1a'>"
+        f"<b>{len(evaluated)}</b> answer(s) evaluated — listen to each examiner's feedback below."
+        f"</div>",
         unsafe_allow_html=True,
     )
-
-    cols = st.columns(4)
-    for i, (c, avg) in enumerate(avgs.items()):
-        with cols[i]:
-            color = _band_color(avg)
-            st.markdown(
-                f"<div style='text-align:center;border:2px solid {color};"
-                f"border-radius:8px;padding:10px'>"
-                f"<b style='color:{color}'>{c}</b><br>"
-                f"<span style='font-size:1.4em;font-weight:bold'>{avg:.1f}</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-    return avgs
 
 
 def _render_part1_summary() -> None:
@@ -1214,15 +1147,13 @@ def _render_part1_summary() -> None:
         evaluated = [t for t in p1_turns if t.result]
 
         if evaluated:
-            avgs = _render_part_averages(evaluated)
+            _render_part_averages(evaluated)
 
             st.markdown("---")
             st.markdown("#### Per-question breakdown")
             for i, turn in enumerate(evaluated):
-                band = turn.result.overall_band
-                color = _band_color(band)
                 with st.expander(
-                    f"Q{i + 1}: {turn.question[:70]}{'…' if len(turn.question) > 70 else ''} — {band:.1f}",
+                    f"Q{i + 1}: {turn.question[:70]}{'…' if len(turn.question) > 70 else ''}",
                     expanded=False,
                 ):
                     st.audio(turn.audio_bytes, format="audio/wav")
@@ -1608,38 +1539,6 @@ def _render_session_summary() -> None:
             st.rerun()
         return
 
-    overall = summary.overall
-    if overall > 0:
-        st.markdown(
-            f"<div style='background:{_band_light_bg(_band_color(overall))};color:{_band_color(overall)};"
-            f"border:2px solid {_band_color(overall)};padding:16px;border-radius:10px;"
-            f"font-size:1.4em;font-weight:bold;text-align:center;margin:12px 0'>"
-            f"Overall Session Band: {overall:.1f} / 9.0</div>",
-            unsafe_allow_html=True,
-        )
-
-    cols = st.columns(4)
-    labels = ["FC", "LR", "GR", "Pronunciation"]
-    avgs = [summary.avg_fc, summary.avg_lr, summary.avg_gr, summary.avg_pronun]
-    for i, (label, avg) in enumerate(zip(labels, avgs)):
-        with cols[i]:
-            if avg > 0:
-                color = _band_color(avg)
-                st.markdown(
-                    f"<div style='text-align:center;border:2px solid {color};"
-                    f"border-radius:8px;padding:12px'>"
-                    f"<b style='color:{color}'>{label}</b><br>"
-                    f"<span style='font-size:1.5em;font-weight:bold'>{avg:.1f}</span><br>"
-                    f"<span style='font-family:monospace;font-size:0.7em'>{_band_bar(avg)}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    f"<div style='text-align:center;padding:12px'><b>{label}</b><br>—</div>",
-                    unsafe_allow_html=True,
-                )
-
     parts_done = []
     if sess.part_turns(1):
         parts_done.append(f"Part 1 ({len(sess.part_turns(1))} answers)")
@@ -1648,14 +1547,7 @@ def _render_session_summary() -> None:
     if sess.part_turns(3):
         parts_done.append(f"Part 3 ({len(sess.part_turns(3))} answers)")
     if parts_done:
-        st.caption("Parts completed: " + " | ".join(parts_done))
-
-    if any(a > 0 for a in avgs):
-        st.markdown("**Top Areas to Improve:**")
-        areas = sorted(zip(labels, avgs), key=lambda x: x[1])
-        for label, avg in areas[:2]:
-            if avg > 0:
-                st.markdown(f"- **{label}** ({avg:.1f}) — {_improvement_tip(label)}")
+        st.markdown("**Parts completed:** " + " | ".join(parts_done))
 
     st.markdown("---")
 
@@ -1711,19 +1603,12 @@ def _render_history(store: FluentUpStore) -> None:
         ts = h.get("created_at", "")
         if hasattr(ts, "strftime"):
             ts = ts.strftime("%Y-%m-%d %H:%M")
-        overall = h.get("overall", 0.0)
-        color = _band_color(overall)
 
         info_col, load_col, del_col = st.columns([7, 1, 1])
         with info_col:
             st.markdown(
-                f"<div style='border-left:4px solid {color};padding:6px 12px;margin:2px 0'>"
-                f"<b style='color:{color}'>{overall:.1f}</b> — {ts} &nbsp; "
-                f"FC:{h.get('avg_fc', 0):.1f} "
-                f"LR:{h.get('avg_lr', 0):.1f} "
-                f"GR:{h.get('avg_gr', 0):.1f} "
-                f"PR:{h.get('avg_pronun', 0):.1f}"
-                f"</div>",
+                f"<div style='border-left:4px solid #1565C0;padding:6px 12px;margin:2px 0'>"
+                f"{ts}</div>",
                 unsafe_allow_html=True,
             )
         with load_col:
@@ -1754,71 +1639,40 @@ def _render_history(store: FluentUpStore) -> None:
 
 
 def _render_history_detail(doc: dict) -> None:
-    """Show a read-only score breakdown for a saved session."""
+    """Show a read-only feedback breakdown for a saved session."""
     with st.container():
         st.markdown("---")
-        overall = doc.get("overall", 0.0)
-        color = _band_color(overall)
-        st.markdown(
-            f"<div style='background:{_band_light_bg(color)};color:{color};"
-            f"border:2px solid {color};padding:8px 14px;"
-            f"border-radius:6px;font-weight:bold;margin-bottom:8px'>"
-            f"Overall: {overall:.1f}</div>",
-            unsafe_allow_html=True,
-        )
-
         turns = doc.get("turns", [])
         for turn in turns:
             part = turn.get("part", "?")
             question = turn.get("question", "")
-            band = turn.get("overall_band", 0.0)
-            c = _band_color(band)
-            with st.expander(f"Part {part} — {question[:60]} [{band:.1f}]"):
-                for score in turn.get("scores", []):
-                    crit = score.get("criterion", "")
-                    b = score.get("band", 0.0)
-                    tips = score.get("tips", [])
-                    sc = _band_color(b)
-                    st.markdown(
-                        f"**{crit}** <span style='color:{sc}'>{b:.1f}</span>",
-                        unsafe_allow_html=True,
-                    )
-                    for tip in tips:
-                        st.markdown(f"  - {tip}")
+            transcript = turn.get("transcript", "")
+            with st.expander(f"Part {part} — {question[:60]}"):
+                if transcript:
+                    st.markdown(f"**Transcript:** {transcript}")
+                for fb in turn.get("feedbacks", []):
+                    crit = fb.get("criterion", "")
+                    text = fb.get("feedback", "")
+                    st.markdown(f"**{crit}:** {text}")
         st.markdown("---")
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-
-def _improvement_tip(criterion: str) -> str:
-    tips = {
-        "FC": "Practice using discourse markers and reducing filler words",
-        "LR": "Expand topic-specific vocabulary and use collocations",
-        "GR": "Use a wider variety of sentence structures and tenses",
-        "Pronunciation": "Focus on word stress and final consonant sounds",
-    }
-    return tips.get(criterion, "Keep practicing")
-
 
 def _build_report(sess: ExamSession) -> str:
     summary = sess.build_summary()
     lines = [
         "FluentUp — IELTS Speaking Practice Session Report",
         "=" * 50,
-        f"Overall Band: {summary.overall:.1f}",
-        f"FC: {summary.avg_fc:.1f} | LR: {summary.avg_lr:.1f} | GR: {summary.avg_gr:.1f} | Pronunciation: {summary.avg_pronun:.1f}",
         "",
     ]
     for t in summary.turns:
         lines.append(f"Part {t.part} — {t.question}")
         if t.result:
-            lines.append(f"  Overall: {t.result.overall_band:.1f}")
-            for score in t.result.scores:
-                lines.append(f"  {score.criterion}: {score.band:.1f}")
-                if score.weak_points:
-                    lines.append("  Weak: " + "; ".join(score.weak_points))
-                if score.tips:
-                    lines.append("  Tips: " + "; ".join(score.tips))
+            if t.result.transcript:
+                lines.append(f"  Transcript: {t.result.transcript}")
+            for fb in t.result.feedbacks:
+                lines.append(f"  [{fb.criterion}] {fb.feedback}")
         lines.append("")
     return "\n".join(lines)
 

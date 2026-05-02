@@ -4,7 +4,7 @@ fluentup/store.py
 MongoDB persistence layer via motor (async).
 
 Collections:
-  sessions — completed exam sessions (scores, transcripts, no audio bytes)
+  sessions — completed exam sessions (transcripts + text feedback, no audio bytes)
   profiles — user profiles (name, age, occupation)
 """
 from __future__ import annotations
@@ -40,25 +40,17 @@ class FluentUpStore:
         doc: dict[str, Any] = {
             "user_id":    user_id,
             "created_at": datetime.datetime.utcnow(),
-            "overall":    summary.overall,
-            "avg_fc":     summary.avg_fc,
-            "avg_lr":     summary.avg_lr,
-            "avg_gr":     summary.avg_gr,
-            "avg_pronun": summary.avg_pronun,
             "turns": [
                 {
-                    "part":         t.part,
-                    "question":     t.question,
-                    "transcript":   t.result.transcript if t.result else "",
-                    "overall_band": t.result.overall_band if t.result else 0.0,
-                    "scores": [
+                    "part":       t.part,
+                    "question":   t.question,
+                    "transcript": t.result.transcript if t.result else "",
+                    "feedbacks": [
                         {
-                            "criterion": s.criterion,
-                            "band":      s.band,
-                            "feedback":  s.feedback,
-                            "tips":      s.tips,
+                            "criterion": f.criterion,
+                            "feedback":  f.feedback,
                         }
-                        for s in t.result.scores
+                        for f in t.result.feedbacks
                     ] if t.result else [],
                 }
                 for t in summary.turns

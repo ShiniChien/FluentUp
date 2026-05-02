@@ -12,7 +12,6 @@ class UserProfile:
     gender: str = "male"     # "male" | "female" | "other"
 
     def prompt_context(self) -> str:
-        """One-line context string injected into LLM prompts."""
         return (
             f"Candidate: {self.name}, {self.age} years old ({self.gender}), {self.occupation_detail}. "
             f"Tailor topics to be relevant to their background.\n\n"
@@ -20,37 +19,27 @@ class UserProfile:
 
 
 @dataclass
-class BandScore:
-    criterion: str  # "FC", "LR", "GR", "Pronunciation"
-    band: float     # 1.0 - 9.0, step 0.5
-    feedback: str
-    tips: list[str]
-    weak_points: list[str] = field(default_factory=list)
+class CriterionFeedback:
+    criterion: str   # "FC", "LR", "GR", "Pronunciation"
+    feedback: str    # spoken evaluation text from Gemini Live
+    audio: bytes = field(default_factory=bytes)  # WAV bytes of spoken feedback
 
 
 @dataclass
 class EvaluationResult:
-    transcript: str
-    scores: list[BandScore]
-    criterion_audio: dict[str, bytes] = field(default_factory=dict)  # criterion → WAV bytes
+    transcript: str                            # input_audio_transcription (user's speech)
+    feedbacks: list[CriterionFeedback]
 
-    @property
-    def overall_band(self) -> float:
-        if not self.scores:
-            return 0.0
-        avg = sum(s.band for s in self.scores) / len(self.scores)
-        return round(avg * 2) / 2  # round to nearest 0.5
-
-    def get_score(self, criterion: str) -> BandScore | None:
-        for s in self.scores:
-            if s.criterion.upper() == criterion.upper():
-                return s
+    def get_feedback(self, criterion: str) -> CriterionFeedback | None:
+        for f in self.feedbacks:
+            if f.criterion.upper() == criterion.upper():
+                return f
         return None
 
 
 @dataclass
 class Turn:
-    part: int            # 1, 2, 3
+    part: int
     question: str
     audio_bytes: bytes
     result: EvaluationResult | None = None
@@ -67,37 +56,5 @@ class CueCard:
 class ExamSummary:
     turns: list[Turn] = field(default_factory=list)
 
-    @property
-    def avg_fc(self) -> float:
-        return self._avg_criterion("FC")
-
-    @property
-    def avg_lr(self) -> float:
-        return self._avg_criterion("LR")
-
-    @property
-    def avg_gr(self) -> float:
-        return self._avg_criterion("GR")
-
-    @property
-    def avg_pronun(self) -> float:
-        return self._avg_criterion("Pronunciation")
-
-    @property
-    def overall(self) -> float:
-        scores = [self.avg_fc, self.avg_lr, self.avg_gr, self.avg_pronun]
-        valid = [s for s in scores if s > 0]
-        if not valid:
-            return 0.0
-        return round(sum(valid) / len(valid) * 2) / 2
-
-    def _avg_criterion(self, criterion: str) -> float:
-        bands = []
-        for t in self.turns:
-            if t.result:
-                score = t.result.get_score(criterion)
-                if score and score.band > 0:
-                    bands.append(score.band)
-        if not bands:
-            return 0.0
-        return round(sum(bands) / len(bands) * 2) / 2
+    def part_turns(self, part: int) -> list[Turn]:
+        return [t for t in self.turns if t.part == part]

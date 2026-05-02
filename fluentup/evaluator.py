@@ -1,26 +1,22 @@
 """
 fluentup/evaluator.py
 ---------------------
-Evaluate IELTS speaking via Gemini Live (AUDIO mode) + OpenRouter JSON parsing.
+Evaluate IELTS speaking via Gemini Live (AUDIO mode).
 
 Flow per criterion:
-  user audio → Gemini Live (AUDIO native) → output_audio_transcription (spoken eval)
-             → OpenRouter LLM → BandScore JSON
+  user audio → Gemini Live (spoken examiner) → output_audio_transcription (feedback text)
+                                             → audio PCM (feedback audio for playback)
 
-eval_one() is exposed publicly so app.py can run each criterion in its own thread
-and stream results to the UI as they complete.
+eval_one() returns (CriterionFeedback, input_transcript) and is called from separate
+threads so results stream to the UI as they arrive.
 """
 from __future__ import annotations
 
 import asyncio
-import json
-import re
-
-import openai
 
 from fluentup.config import LIVE_MODEL
 from fluentup.live_session import gemini_live_once, pcm_to_wav, OUTPUT_RATE
-from fluentup.models import BandScore, EvaluationResult
+from fluentup.models import CriterionFeedback
 from fluentup.prompts import (
     FC_LIVE_SYSTEM,
     LR_LIVE_SYSTEM,
@@ -37,64 +33,12 @@ _PROMPTS = {
     "Pronunciation": PRONUN_LIVE_SYSTEM,
 }
 
-_PARSE_PROMPT = """\
-You are a JSON formatter. The text below is a spoken IELTS evaluation for the criterion "{criterion}".
-Extract the assessment and return ONLY valid JSON with this exact schema — no markdown, no extra text:
-{{"band": <float 1.0-9.0 step 0.5>, "weak_points": ["<issue>"], "tips": ["<actionable tip>"]}}
-
-Spoken evaluation:
-{text}"""
-
-
-def _parse_band_score(criterion: str, raw: str) -> BandScore:
-    try:
-        cleaned = re.sub(r"```(?:json)?|```", "", raw).strip()
-        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        data = json.loads(match.group() if match else cleaned)
-        return BandScore(
-            criterion=criterion,
-            band=float(data.get("band", 0.0)),
-            feedback="",
-            tips=list(data.get("tips", [])),
-            weak_points=list(data.get("weak_points", [])),
-        )
-    except Exception:
-        return BandScore(criterion=criterion, band=0.0, feedback=raw[:300],
-                         tips=[], weak_points=[])
-
 
 class LiveEvaluationPipeline:
-    def __init__(
-        self,
-        api_key:             str,
-        model:               str = LIVE_MODEL,
-        openrouter_base_url: str = "",
-        openrouter_api_key:  str = "",
-        openrouter_model:    str = "",
-    ) -> None:
-        self._api      = api_key
-        self._model    = model
-        self._or_client = openai.AsyncOpenAI(
-            base_url=openrouter_base_url,
-            api_key=openrouter_api_key,
-        ) if openrouter_base_url and openrouter_api_key else None
-        self._or_model = openrouter_model
-
-    async def _parse_with_llm(self, criterion: str, text: str) -> BandScore:
-        if not self._or_client or not text.strip():
-            return _parse_band_score(criterion, text)
-        try:
-            resp = await self._or_client.chat.completions.create(
-                model=self._or_model,
-                messages=[{"role": "user", "content": _PARSE_PROMPT.format(
-                    criterion=criterion, text=text,
-                )}],
-                temperature=0.0,
-            )
-            raw = (resp.choices[0].message.content or "").strip()
-            return _parse_band_score(criterion, raw)
-        except Exception:
-            return _parse_band_score(criterion, text)
+    def __init__(self, api_key: str, model: str = LIVE_MODEL, **_kwargs) -> None:
+        self._api   = api_key
+        self._model = model
+        # **_kwargs absorbs legacy openrouter_* params so call sites need no update
 
     async def eval_one(
         self,
@@ -102,11 +46,11 @@ class LiveEvaluationPipeline:
         audio_bytes: bytes,
         question:    str,
         part:        int = 1,
-    ) -> tuple[BandScore, str, bytes]:
+    ) -> tuple[CriterionFeedback, str]:
         """
-        Evaluate a single criterion.
-        Returns (score, input_transcript, audio_wav_bytes).
-        Call this from separate threads (each with asyncio.run) for streaming UI.
+        Evaluate a single criterion via Gemini Live.
+        Returns (CriterionFeedback, input_transcript).
+        Call from separate threads (each with asyncio.run) for streaming UI.
         """
         system_prompt = _PROMPTS[criterion].format(question=question, part=part)
         try:
@@ -119,13 +63,15 @@ class LiveEvaluationPipeline:
                 ),
                 timeout=60.0,
             )
-            score = await self._parse_with_llm(criterion, output_tr)
-            score.feedback = output_tr  # keep spoken text as text fallback for UI
             wav = pcm_to_wav(audio_pcm, OUTPUT_RATE) if audio_pcm else b""
-            return score, input_tr, wav
+            return CriterionFeedback(
+                criterion=criterion,
+                feedback=output_tr,
+                audio=wav,
+            ), input_tr
         except Exception as exc:
-            return BandScore(
-                criterion=criterion, band=0.0,
+            return CriterionFeedback(
+                criterion=criterion,
                 feedback=f"Evaluation failed: {exc}",
-                tips=[], weak_points=[],
-            ), "", b""
+                audio=b"",
+            ), ""
