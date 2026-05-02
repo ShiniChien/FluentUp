@@ -79,7 +79,12 @@ or subordinating conjunctions (although, because, while)?
    - Were individual sounds accurate?
    - Did they use connected speech features — linking, elision, schwa reduction?
 
-Speak directly to the candidate in natural paragraphs. \
+After the feedback, say: "Here is an example of a strong answer to this question:" \
+then speak a model answer of 4–6 sentences that demonstrates the vocabulary, grammar structures, \
+and fluency you recommended. Make the example feel natural and conversational, \
+appropriate for the part and topic.
+
+Speak directly to the candidate throughout. \
 Do NOT give band scores or numbers. Do NOT use bullet points.\
 """
 

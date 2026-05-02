@@ -523,17 +523,19 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
         for fb in eval_result.feedbacks:
             if fb.audio:
                 autoplay = fb.criterion not in played
+                st.markdown("**🎙 Listen to examiner feedback + model answer:**")
                 st.audio(fb.audio, format="audio/wav", autoplay=autoplay)
                 if autoplay:
                     played.add(fb.criterion)
                     st.session_state["eval_auto_played"] = played
             if fb.feedback:
-                st.markdown(
-                    f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
-                    f"padding:10px 14px;border-radius:4px;font-size:0.95em;color:#212529'>"
-                    f"{fb.feedback}</div>",
-                    unsafe_allow_html=True,
-                )
+                with st.expander("Read feedback", expanded=False):
+                    st.markdown(
+                        f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
+                        f"padding:10px 14px;border-radius:4px;font-size:0.95em;color:#212529'>"
+                        f"{fb.feedback}</div>",
+                        unsafe_allow_html=True,
+                    )
         turn.result = eval_result
     else:
         st.error(result_state["error"])
@@ -564,10 +566,11 @@ def _render_evaluation(result: EvaluationResult, key_suffix: str = "") -> None:
             )
 
     for fb in result.feedbacks:
-        with st.expander(f"**{fb.criterion}**", expanded=True):
-            if fb.audio:
-                st.audio(fb.audio, format="audio/wav")
-            if fb.feedback:
+        if fb.audio:
+            st.markdown("**🎙 Listen to examiner feedback + model answer:**")
+            st.audio(fb.audio, format="audio/wav")
+        if fb.feedback:
+            with st.expander("Read feedback", expanded=False):
                 st.markdown(
                     f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
                     f"padding:10px 14px;border-radius:4px;font-size:0.95em;color:#212529'>"
@@ -577,7 +580,7 @@ def _render_evaluation(result: EvaluationResult, key_suffix: str = "") -> None:
 
     feedback_text = ""
     for fb in result.feedbacks:
-        feedback_text += f"=== {fb.criterion} ===\n{fb.feedback}\n\n"
+        feedback_text += f"{fb.feedback}\n"
     if feedback_text:
         st.download_button(
             "Download Feedback",
