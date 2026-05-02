@@ -576,7 +576,7 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
 
 # ── Evaluation summary display ────────────────────────────────────────────────
 
-def _render_evaluation(result: EvaluationResult) -> None:
+def _render_evaluation(result: EvaluationResult, key_suffix: str = "") -> None:
     st.markdown("#### Examiner Feedback")
 
     if result.transcript:
@@ -608,6 +608,7 @@ def _render_evaluation(result: EvaluationResult) -> None:
             data=feedback_text,
             file_name="feedback.txt",
             mime="text/plain",
+            key=f"dl_feedback_{key_suffix}" if key_suffix else None,
         )
 
 
@@ -1154,7 +1155,7 @@ def _render_part1_summary() -> None:
                     expanded=False,
                 ):
                     st.audio(turn.audio_bytes, format="audio/wav")
-                    _render_evaluation(turn.result)
+                    _render_evaluation(turn.result, key_suffix=f"p1_{i}")
         else:
             st.info("No evaluated answers yet.")
 
