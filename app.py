@@ -14,7 +14,7 @@ import streamlit as st
 
 from fluentup.exam_session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
 from fluentup.models import CriterionFeedback, EvaluationResult, Turn, UserProfile
-from fluentup.evaluator import LiveEvaluationPipeline, CRITERIA
+from fluentup.evaluator import LiveEvaluationPipeline
 from fluentup.question_gen import QuestionGenerator
 from fluentup.live_session import gemini_transcribe_only
 from fluentup.store import FluentUpStore
@@ -385,7 +385,7 @@ def _render_sidebar_history(store: FluentUpStore) -> None:
 
 
 def _clear_streaming_state() -> None:
-    for key in ("eval_partial", "eval_auto_played", "eval_errors"):
+    for key in ("eval_result", "eval_auto_played"):
         st.session_state.pop(key, None)
 
 
@@ -394,26 +394,22 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
     if evaluator is None:
         return
 
-    partial: dict = {}
-    errors: dict = {}
-    st.session_state["eval_partial"] = partial
+    result: dict = {}
+    st.session_state["eval_result"] = result
     st.session_state["eval_auto_played"] = set()
-    st.session_state["eval_errors"] = errors
 
-    def _worker(criterion: str, results: dict, errs: dict) -> None:
+    def _worker() -> None:
         try:
-            feedback, _ = asyncio.run(evaluator.eval_one(
-                criterion=criterion,
+            eval_result, _ = asyncio.run(evaluator.evaluate(
                 audio_bytes=turn.audio_bytes,
                 question=turn.question,
                 part=part,
             ))
-            results[criterion] = feedback
+            result["done"] = eval_result
         except Exception as exc:
-            errs[criterion] = str(exc)
+            result["error"] = str(exc)
 
-    for c in CRITERIA:
-        threading.Thread(target=_worker, args=(c, partial, errors), daemon=True).start()
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
@@ -453,24 +449,21 @@ def _start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
     if evaluator is None:
         return
     turn_evals: dict = st.session_state.setdefault("turn_evals", {})
-    partial: dict = {}
-    errors: dict = {}
-    turn_evals[turn_idx] = {"partial": partial, "errors": errors}
+    result: dict = {}
+    turn_evals[turn_idx] = result
 
-    def _worker(criterion: str) -> None:
+    def _worker() -> None:
         try:
-            feedback, _ = asyncio.run(evaluator.eval_one(
-                criterion=criterion,
+            eval_result, _ = asyncio.run(evaluator.evaluate(
                 audio_bytes=turn.audio_bytes,
                 question=turn.question,
                 part=part,
             ))
-            partial[criterion] = feedback
+            result["done"] = eval_result
         except Exception as exc:
-            errors[criterion] = str(exc)
+            result["error"] = str(exc)
 
-    for c in CRITERIA:
-        threading.Thread(target=_worker, args=(c,), daemon=True).start()
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 def _assemble_bg_evals(sess) -> int:
@@ -483,93 +476,76 @@ def _assemble_bg_evals(sess) -> int:
         state = turn_evals.get(i)
         if state is None:
             continue
-        partial = state["partial"]
-        errors = state["errors"]
-        if len(partial) + len(errors) < len(CRITERIA):
+        if "done" not in state and "error" not in state:
             pending += 1
             continue
-        feedbacks = []
-        for c in CRITERIA:
-            if c in partial:
-                feedbacks.append(partial[c])
-            else:
-                feedbacks.append(CriterionFeedback(
-                    criterion=c,
-                    feedback=errors.get(c, "Failed"),
+        if "done" in state:
+            turn.result = state["done"]
+        else:
+            turn.result = EvaluationResult(
+                transcript="",
+                feedbacks=[CriterionFeedback(
+                    criterion="Examiner",
+                    feedback=state["error"],
                     audio=b"",
-                ))
-        turn.result = EvaluationResult(transcript="", feedbacks=feedbacks)
+                )],
+            )
     return pending
 
 
 def _render_streaming_eval(turn: Turn, part: int) -> bool:
     """
-    Show per-criterion feedback as it arrives.
-    Returns True when all 4 criteria are done and turn.result has been assembled.
+    Show evaluator feedback when ready.
+    Returns True when done and turn.result has been assembled.
     """
     evaluator = st.session_state.get("evaluator")
     if evaluator is None:
         st.error("Gemini API key required for evaluation.")
         return False
 
-    partial = st.session_state.get("eval_partial")
-    if partial is None:
+    result_state = st.session_state.get("eval_result")
+    if result_state is None:
         _start_streaming_eval(turn, part)
         st.rerun()
         return False
 
-    errors: dict = st.session_state.get("eval_errors", {})
-    played: set = st.session_state.get("eval_auto_played", set())
-
-    done_count = len(partial) + len(errors)
-    total = len(CRITERIA)
-
-    if done_count < total:
-        st.markdown(f"**Evaluating… ({done_count}/{total} criteria complete)**")
-        st.progress(done_count / total)
-    else:
-        st.markdown(f"**Evaluation complete ({total}/{total})**")
-        st.progress(1.0)
-
-    for criterion in CRITERIA:
-        if criterion in partial:
-            fb: CriterionFeedback = partial[criterion]
-            with st.expander(f"**{criterion}**", expanded=True):
-                if fb.audio:
-                    autoplay = criterion not in played
-                    st.audio(fb.audio, format="audio/wav", autoplay=autoplay)
-                    if autoplay:
-                        played.add(criterion)
-                        st.session_state["eval_auto_played"] = played
-                if fb.feedback:
-                    st.markdown(
-                        f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
-                        f"padding:10px 14px;border-radius:4px;font-size:0.95em;color:#212529'>"
-                        f"{fb.feedback}</div>",
-                        unsafe_allow_html=True,
-                    )
-        elif criterion in errors:
-            with st.expander(f"**{criterion}** — Error", expanded=True):
-                st.error(errors[criterion])
-
-    if done_count < total:
+    if "done" not in result_state and "error" not in result_state:
+        st.markdown("**Examiner is reviewing your answer…**")
+        st.progress(0.0, text="This may take a moment with thinking enabled")
         time.sleep(0.8)
         st.rerun()
         return False
 
-    feedbacks = []
-    input_tr = ""
-    for criterion in CRITERIA:
-        if criterion in partial:
-            feedbacks.append(partial[criterion])
-        else:
-            feedbacks.append(CriterionFeedback(
-                criterion=criterion,
-                feedback=errors.get(criterion, "Failed"),
-                audio=b"",
-            ))
+    played: set = st.session_state.get("eval_auto_played", set())
 
-    turn.result = EvaluationResult(transcript=input_tr, feedbacks=feedbacks)
+    if "done" in result_state:
+        eval_result: EvaluationResult = result_state["done"]
+        for fb in eval_result.feedbacks:
+            if fb.audio:
+                autoplay = fb.criterion not in played
+                st.audio(fb.audio, format="audio/wav", autoplay=autoplay)
+                if autoplay:
+                    played.add(fb.criterion)
+                    st.session_state["eval_auto_played"] = played
+            if fb.feedback:
+                st.markdown(
+                    f"<div style='background:#f8f9fa;border-left:4px solid #6c757d;"
+                    f"padding:10px 14px;border-radius:4px;font-size:0.95em;color:#212529'>"
+                    f"{fb.feedback}</div>",
+                    unsafe_allow_html=True,
+                )
+        turn.result = eval_result
+    else:
+        st.error(result_state["error"])
+        turn.result = EvaluationResult(
+            transcript="",
+            feedbacks=[CriterionFeedback(
+                criterion="Examiner",
+                feedback=result_state["error"],
+                audio=b"",
+            )],
+        )
+
     _clear_streaming_state()
     return True
 

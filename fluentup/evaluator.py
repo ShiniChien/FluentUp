@@ -1,14 +1,12 @@
 """
 fluentup/evaluator.py
 ---------------------
-Evaluate IELTS speaking via Gemini Live (AUDIO mode).
+Evaluate IELTS speaking via a single Gemini Live session with thinking enabled.
 
-Flow per criterion:
-  user audio → Gemini Live (spoken examiner) → output_audio_transcription (feedback text)
-                                             → audio PCM (feedback audio for playback)
-
-eval_one() returns (CriterionFeedback, input_transcript) and is called from separate
-threads so results stream to the UI as they arrive.
+Flow:
+  user audio → Gemini Live (thinking=True, single examiner)
+             → spoken feedback covering FC / LR / GR / Pronunciation
+             → output_audio_transcription shown directly in UI
 """
 from __future__ import annotations
 
@@ -16,43 +14,28 @@ import asyncio
 
 from fluentup.config import LIVE_MODEL
 from fluentup.live_session import gemini_live_once, pcm_to_wav, OUTPUT_RATE
-from fluentup.models import CriterionFeedback
-from fluentup.prompts import (
-    FC_LIVE_SYSTEM,
-    LR_LIVE_SYSTEM,
-    GR_LIVE_SYSTEM,
-    PRONUN_LIVE_SYSTEM,
-)
+from fluentup.models import CriterionFeedback, EvaluationResult
+from fluentup.prompts import EXAMINER_LIVE_SYSTEM
 
-CRITERIA = ["FC", "LR", "GR", "Pronunciation"]
-
-_PROMPTS = {
-    "FC":            FC_LIVE_SYSTEM,
-    "LR":            LR_LIVE_SYSTEM,
-    "GR":            GR_LIVE_SYSTEM,
-    "Pronunciation": PRONUN_LIVE_SYSTEM,
-}
+_EVAL_TIMEOUT = 90.0  # seconds — longer than before because thinking adds latency
 
 
 class LiveEvaluationPipeline:
     def __init__(self, api_key: str, model: str = LIVE_MODEL, **_kwargs) -> None:
         self._api   = api_key
         self._model = model
-        # **_kwargs absorbs legacy openrouter_* params so call sites need no update
 
-    async def eval_one(
+    async def evaluate(
         self,
-        criterion:   str,
         audio_bytes: bytes,
         question:    str,
         part:        int = 1,
-    ) -> tuple[CriterionFeedback, str]:
+    ) -> tuple[EvaluationResult, str]:
         """
-        Evaluate a single criterion via Gemini Live.
-        Returns (CriterionFeedback, input_transcript).
-        Call from separate threads (each with asyncio.run) for streaming UI.
+        Evaluate all four IELTS criteria in a single Gemini Live session.
+        Returns (EvaluationResult, input_transcript).
         """
-        system_prompt = _PROMPTS[criterion].format(question=question, part=part)
+        system_prompt = EXAMINER_LIVE_SYSTEM.format(question=question, part=part)
         try:
             input_tr, output_tr, audio_pcm = await asyncio.wait_for(
                 gemini_live_once(
@@ -60,18 +43,21 @@ class LiveEvaluationPipeline:
                     system_prompt=system_prompt,
                     wav_bytes=audio_bytes,
                     model=self._model,
+                    thinking=True,
                 ),
-                timeout=60.0,
+                timeout=_EVAL_TIMEOUT,
             )
             wav = pcm_to_wav(audio_pcm, OUTPUT_RATE) if audio_pcm else b""
-            return CriterionFeedback(
-                criterion=criterion,
+            feedback = CriterionFeedback(
+                criterion="Examiner",
                 feedback=output_tr,
                 audio=wav,
-            ), input_tr
+            )
+            return EvaluationResult(transcript=input_tr, feedbacks=[feedback]), input_tr
         except Exception as exc:
-            return CriterionFeedback(
-                criterion=criterion,
+            feedback = CriterionFeedback(
+                criterion="Examiner",
                 feedback=f"Evaluation failed: {exc}",
                 audio=b"",
-            ), ""
+            )
+            return EvaluationResult(transcript="", feedbacks=[feedback]), ""

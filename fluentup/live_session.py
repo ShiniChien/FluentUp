@@ -105,6 +105,7 @@ async def gemini_live_once(
     system_prompt: str,
     wav_bytes:     bytes,
     model:         str = LIVE_MODEL,
+    thinking:      bool = False,
 ) -> tuple[str, str, bytes]:
     """
     Send pre-recorded WAV to Gemini Live (AUDIO modality — its native mode).
@@ -119,7 +120,7 @@ async def gemini_live_once(
     last_exc: Exception | None = None
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            return await _gemini_live_once_attempt(api_key, system_prompt, wav_bytes, model)
+            return await _gemini_live_once_attempt(api_key, system_prompt, wav_bytes, model, thinking)
         except Exception as exc:
             last_exc = exc
             msg = str(exc).lower()
@@ -135,6 +136,7 @@ async def _gemini_live_once_attempt(
     system_prompt: str,
     wav_bytes:     bytes,
     model:         str,
+    thinking:      bool = False,
 ) -> tuple[str, str, bytes]:
     pcm = wav_to_pcm16k(wav_bytes)
 
@@ -151,7 +153,7 @@ async def _gemini_live_once_attempt(
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
         ),
-        thinking_config=types.ThinkingConfig(include_thoughts=False),
+        thinking_config=types.ThinkingConfig(include_thoughts=thinking),
     )
     if system_prompt.strip():
         cfg_kwargs["system_instruction"] = types.Content(
