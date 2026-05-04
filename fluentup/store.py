@@ -9,6 +9,7 @@ Collections:
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,22 @@ from fluentup.models import ExamSummary
 
 if TYPE_CHECKING:
     from fluentup.models import UserProfile
+
+_WRITE_RETRIES = 3
+_RETRY_DELAY = 1.0
+
+
+async def _retry_write(coro_fn, *args, **kwargs):
+    """Retry a write coroutine up to _WRITE_RETRIES times on transient errors."""
+    last_exc: Exception | None = None
+    for attempt in range(_WRITE_RETRIES):
+        try:
+            return await coro_fn(*args, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _WRITE_RETRIES - 1:
+                await asyncio.sleep(_RETRY_DELAY * (attempt + 1))
+    raise last_exc
 
 
 class FluentUpStore:
@@ -56,7 +73,7 @@ class FluentUpStore:
                 for t in summary.turns
             ],
         }
-        result = await self._sessions.insert_one(doc)
+        result = await _retry_write(self._sessions.insert_one, doc)
         return str(result.inserted_id)
 
     async def get_recent_sessions(
@@ -104,14 +121,15 @@ class FluentUpStore:
             "updated_at":         datetime.datetime.utcnow(),
         }
         if profile.profile_id:
-            await self._profiles.update_one(
+            await _retry_write(
+                self._profiles.update_one,
                 {"_id": ObjectId(profile.profile_id)},
                 {"$set": doc},
                 upsert=True,
             )
             return profile.profile_id
         doc["created_at"] = doc["updated_at"]
-        result = await self._profiles.insert_one(doc)
+        result = await _retry_write(self._profiles.insert_one, doc)
         return str(result.inserted_id)
 
     async def get_profiles(self, limit: int = 20) -> list[dict]:

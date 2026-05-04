@@ -87,35 +87,7 @@ def _init_state(secrets: dict) -> None:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _band_color(band: float) -> str:
-    """Background color for a band score — all dark enough for white text."""
-    if band >= 8.0:
-        return "#00695C"   # dark teal
-    if band >= 7.0:
-        return "#2E7D32"   # dark green
-    if band >= 6.0:
-        return "#558B2F"   # dark olive-green
-    if band >= 5.0:
-        return "#E65100"   # dark orange
-    if band >= 4.0:
-        return "#BF360C"   # deep orange-red
-    return "#B71C1C"       # dark red
-
-
-_BAND_LIGHT_BG: dict[str, str] = {
-    "#00695C": "#E0F2F1",
-    "#2E7D32": "#E8F5E9",
-    "#558B2F": "#F1F8E9",
-    "#E65100": "#FFF3E0",
-    "#BF360C": "#FBE9E7",
-    "#B71C1C": "#FFEBEE",
-}
-
-
-def _band_light_bg(color: str) -> str:
-    """Light background tint for a band color — suitable for dark text."""
-    return _BAND_LIGHT_BG.get(color, "#F5F5F5")
-
+_RESULT_LOCK = threading.Lock()
 
 _bg_loop: asyncio.AbstractEventLoop | None = None
 _bg_thread: threading.Thread | None = None
@@ -394,7 +366,7 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
     if evaluator is None:
         return
 
-    result: dict = {}
+    result: dict = {"_started": time.time()}
     st.session_state["eval_result"] = result
     st.session_state["eval_auto_played"] = set()
 
@@ -405,9 +377,11 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
                 question=turn.question,
                 part=part,
             ))
-            result["done"] = eval_result
+            with _RESULT_LOCK:
+                result["done"] = eval_result
         except Exception as exc:
-            result["error"] = str(exc)
+            with _RESULT_LOCK:
+                result["error"] = str(exc)
 
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -422,7 +396,7 @@ def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
     # Store a plain dict in session_state BEFORE starting the thread.
     # The thread mutates the dict in-place — never touches st.session_state directly,
     # which would fail with "missing ScriptRunContext" from a non-main thread.
-    result: dict = {"ready": False, "text": "", "wav": b""}
+    result: dict = {"ready": False, "text": "", "wav": b"", "_started": time.time()}
     st.session_state["p1_next_q"] = result
 
     def _worker() -> None:
@@ -433,10 +407,12 @@ def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
                 accent=accent,
                 profile=profile,
             ))
-            result["text"] = text
-            result["wav"] = wav
+            with _RESULT_LOCK:
+                result["text"] = text
+                result["wav"] = wav
         except Exception as exc:
-            result["error"] = str(exc)
+            with _RESULT_LOCK:
+                result["error"] = str(exc)
         finally:
             result["ready"] = True
 
@@ -449,7 +425,7 @@ def _start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
     if evaluator is None:
         return
     turn_evals: dict = st.session_state.setdefault("turn_evals", {})
-    result: dict = {}
+    result: dict = {"_started": time.time()}
     turn_evals[turn_idx] = result
 
     def _worker() -> None:
@@ -459,9 +435,11 @@ def _start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
                 question=turn.question,
                 part=part,
             ))
-            result["done"] = eval_result
+            with _RESULT_LOCK:
+                result["done"] = eval_result
         except Exception as exc:
-            result["error"] = str(exc)
+            with _RESULT_LOCK:
+                result["error"] = str(exc)
 
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -469,6 +447,7 @@ def _start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
 def _assemble_bg_evals(sess) -> int:
     """Assemble completed background evals into turn.result. Returns pending count."""
     turn_evals: dict = st.session_state.get("turn_evals", {})
+    _timeout = 120.0
     pending = 0
     for i, turn in enumerate(sess.turns):
         if turn.result is not None:
@@ -476,9 +455,14 @@ def _assemble_bg_evals(sess) -> int:
         state = turn_evals.get(i)
         if state is None:
             continue
+        elapsed = time.time() - state.get("_started", time.time())
         if "done" not in state and "error" not in state:
-            pending += 1
-            continue
+            if elapsed > _timeout:
+                with _RESULT_LOCK:
+                    state["error"] = "Evaluation timed out."
+            else:
+                pending += 1
+                continue
         if "done" in state:
             turn.result = state["done"]
         else:
@@ -510,8 +494,14 @@ def _render_streaming_eval(turn: Turn, part: int) -> bool:
         return False
 
     if "done" not in result_state and "error" not in result_state:
+        elapsed = time.time() - result_state.get("_started", time.time())
+        if elapsed > 120:
+            with _RESULT_LOCK:
+                result_state["error"] = "Evaluation timed out after 2 minutes. Please try again."
+            st.rerun()
+            return False
         st.markdown("**Examiner is reviewing your answer…**")
-        st.progress(0.0, text="This may take a moment with thinking enabled")
+        st.progress(min(elapsed / 90, 0.95), text="This may take a moment with thinking enabled")
         time.sleep(0.8)
         st.rerun()
         return False
@@ -1017,6 +1007,12 @@ def _render_part1_idle() -> None:
     # Wait for next question to finish generating
     next_q: dict | None = st.session_state.get("p1_next_q")
     if next_q is not None and not next_q.get("ready", False):
+        elapsed = time.time() - next_q.get("_started", time.time())
+        if elapsed > 45:
+            next_q["error"] = "Question generation timed out."
+            next_q["ready"] = True
+            st.rerun()
+            return
         st.caption(f"Question {idx + 1} (up to {max_q})")
         st.progress(idx / max_q)
         st.info("Preparing next question...")
