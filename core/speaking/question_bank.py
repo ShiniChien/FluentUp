@@ -1,5 +1,5 @@
 """
-fluentup/question_bank.py
+core/question_bank.py
 -------------------------
 Pre-built Part 1 opening question bank — 50 everyday domains, 2-3 questions each.
 Used instead of an LLM call for the first question to improve speed and reliability.

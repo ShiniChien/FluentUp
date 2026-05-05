@@ -1,11 +1,12 @@
 """
-fluentup/store.py
+core/store.py
 -----------------
 MongoDB persistence layer via motor (async).
 
 Collections:
-  sessions — completed exam sessions (transcripts + text feedback, no audio bytes)
-  profiles — user profiles (name, age, occupation)
+  sessions   — completed exam sessions (transcripts + text feedback, no audio bytes)
+  profiles   — user profiles (name, age, occupation)
+  vocabulary — personal dictionary entries saved from EchoLab
 """
 from __future__ import annotations
 
@@ -16,10 +17,10 @@ from typing import TYPE_CHECKING, Any
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from fluentup.models import ExamSummary
+from core.models import ExamSummary
 
 if TYPE_CHECKING:
-    from fluentup.models import UserProfile
+    from core.models import UserProfile
 
 _WRITE_RETRIES = 3
 _RETRY_DELAY = 1.0
@@ -46,9 +47,10 @@ class FluentUpStore:
             password=password,
             serverSelectionTimeoutMS=5000,
         )
-        db = self._client["fluentup"]
+        db = self._client["core"]
         self._sessions = db["sessions"]
         self._profiles = db["profiles"]
+        self._vocabulary = db["vocabulary"]
 
     async def save_session(
         self, summary: ExamSummary, user_id: str = "default"
@@ -143,4 +145,35 @@ class FluentUpStore:
 
     async def delete_profile(self, profile_id: str) -> bool:
         result = await self._profiles.delete_one({"_id": ObjectId(profile_id)})
+        return result.deleted_count > 0
+
+    # ── Vocabulary CRUD ───────────────────────────────────────────────────────
+
+    async def save_vocab(
+        self, word: str, notes: str = "", user_id: str = "default"
+    ) -> str:
+        doc: dict[str, Any] = {
+            "word":       word.strip(),
+            "notes":      notes.strip(),
+            "user_id":    user_id,
+            "created_at": datetime.datetime.utcnow(),
+        }
+        result = await _retry_write(self._vocabulary.insert_one, doc)
+        return str(result.inserted_id)
+
+    async def get_vocab(
+        self, user_id: str = "default", limit: int = 200
+    ) -> list[dict]:
+        cursor = self._vocabulary.find(
+            {"user_id": user_id},
+            sort=[("created_at", -1)],
+            limit=limit,
+        )
+        docs = await cursor.to_list(length=limit)
+        for d in docs:
+            d["_id"] = str(d["_id"])
+        return docs
+
+    async def delete_vocab(self, entry_id: str) -> bool:
+        result = await self._vocabulary.delete_one({"_id": ObjectId(entry_id)})
         return result.deleted_count > 0

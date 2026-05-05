@@ -1,5 +1,5 @@
 """
-fluentup/evaluator.py
+core/evaluator.py
 ---------------------
 Evaluate IELTS speaking via a single Gemini Live session with thinking enabled.
 
@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import asyncio
 
-from fluentup.config import LIVE_MODEL
-from fluentup.live_session import gemini_live_once, pcm_to_wav, OUTPUT_RATE
-from fluentup.models import CriterionFeedback, EvaluationResult
-from fluentup.prompts import EXAMINER_LIVE_SYSTEM
+from core.config import LIVE_MODEL
+from core.live_session import gemini_live_once, pcm_to_wav, OUTPUT_RATE
+from core.models import CriterionFeedback, EvaluationResult
+from core.speaking.prompts import EXAMINER_LIVE_SYSTEM
 
 _EVAL_TIMEOUT = 90.0  # seconds — longer than before because thinking adds latency
 

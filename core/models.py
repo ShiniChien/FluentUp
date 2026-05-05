@@ -1,3 +1,11 @@
+"""
+core/models.py
+------------------
+Pure dataclasses shared across both pages.
+
+Speaking practice:  UserProfile, CriterionFeedback, EvaluationResult, Turn, CueCard, ExamSummary
+Listening practice: VocabEntry
+"""
 from __future__ import annotations
 from dataclasses import dataclass, field
 
@@ -50,6 +58,14 @@ class CueCard:
     topic: str
     points: list[str]
     explain: str = ""
+
+
+@dataclass
+class VocabEntry:
+    word: str
+    notes: str = ""
+    entry_id: str = ""
+    user_id: str = "default"
 
 
 @dataclass

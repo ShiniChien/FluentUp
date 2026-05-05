@@ -4,8 +4,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Literal
 
-from fluentup.models import Turn, CueCard, ExamSummary
-from fluentup.config import PREP_SECONDS, SPEAK_SECONDS  # noqa: F401 – re-exported for app.py
+from core.models import Turn, CueCard, ExamSummary
+from core.config import PREP_SECONDS, SPEAK_SECONDS  # noqa: F401 – re-exported for speaking page
 
 Phase = Literal[
     "home",

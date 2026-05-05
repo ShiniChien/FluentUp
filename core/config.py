@@ -72,3 +72,16 @@ ACCENT_LABELS: dict[str, str] = {
     "in": "Indian",
     "au": "Australian",
 }
+
+# ── Listening dialogue speaker personas ───────────────────────────────────────
+
+SPEAKER_PERSONA = (
+    "You are Speaker {speaker} in a short, casual everyday English conversation about '{topic}'. "
+    "Keep your reply to 1-2 short sentences — speak the way people actually talk, not like a podcast or lecture. "
+    "Be natural, relaxed, and conversational. "
+    "Do NOT greet the other person unless it's the very first line of the conversation.\n"
+    "{accent_instruction}"
+)
+
+LISTENING_TURNS_MIN = 1
+LISTENING_TURNS_MAX = 30

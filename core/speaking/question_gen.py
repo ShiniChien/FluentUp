@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING
 
 import openai
 
-from fluentup.prompts import (
+from core.speaking.prompts import (
     CUE_CARD_PROMPT,
     PART3_QUESTION_PROMPT,
     PART3_RANDOM_QUESTION_PROMPT,
 )
-from fluentup.models import CueCard
-from fluentup.live_session import gemini_live_speak, gemini_live_next_question
-from fluentup.question_bank import pick_opening_question
-from fluentup.config import (
+from core.models import CueCard
+from core.live_session import gemini_live_speak, gemini_live_next_question
+from core.speaking.question_bank import pick_opening_question
+from core.config import (
     EXAMINER_ACCENTS,
     DEFAULT_ACCENT,
     DEFAULT_VOICE,
@@ -27,7 +27,7 @@ from fluentup.config import (
 )
 
 if TYPE_CHECKING:
-    from fluentup.models import UserProfile
+    from core.models import UserProfile
 
 
 _VIET11K_PATH = Path(__file__).parent / "Viet11K.txt"
@@ -177,7 +177,7 @@ class QuestionGenerator:
     ) -> bytes:
         """Return WAV bytes of the question spoken by the Gemini Live examiner voice.
 
-        accent: one of 'us', 'uk', 'in', 'au' (see fluentup/accents.py)
+        accent: one of 'us', 'uk', 'in', 'au' (see core/accents.py)
         """
         system_instruction = EXAMINER_ACCENTS.get(accent, EXAMINER_ACCENTS[DEFAULT_ACCENT])
         return await gemini_live_speak(

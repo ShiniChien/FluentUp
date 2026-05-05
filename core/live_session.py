@@ -1,5 +1,5 @@
 """
-fluentup/live_session.py
+core/live_session.py
 ------------------------
 One-shot Gemini Live utility for push-to-talk audio processing and TTS.
 
@@ -22,7 +22,7 @@ import numpy as np
 import google.genai as genai
 from google.genai import types
 
-from fluentup.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS
+from core.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS
 
 CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000
 
@@ -280,6 +280,78 @@ async def gemini_live_next_question(
 
 
 # ── TTS via Gemini Live AUDIO output ─────────────────────────────────────────
+
+async def gemini_live_dialogue_turn(
+    api_key:            str,
+    user_message:       str,
+    voice:              str,
+    model:              str = LIVE_MODEL,
+    system_instruction: str = "",
+) -> tuple[str, bytes]:
+    """
+    Generate one dialogue turn via Gemini Live.
+    Returns (output_transcript, wav_bytes).
+    The model improvises a spoken reply; transcript is captured from output_audio_transcription.
+    """
+    client = genai.Client(
+        api_key=api_key,
+        http_options={"api_version": "v1beta"},
+    )
+
+    cfg_kwargs: dict = dict(
+        response_modalities=[types.Modality.AUDIO],
+        output_audio_transcription=types.AudioTranscriptionConfig(),
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
+            )
+        ),
+        realtime_input_config=types.RealtimeInputConfig(
+            automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
+        ),
+        thinking_config=types.ThinkingConfig(include_thoughts=False),
+    )
+    if system_instruction.strip():
+        cfg_kwargs["system_instruction"] = types.Content(
+            parts=[types.Part.from_text(text=system_instruction)]
+        )
+
+    pcm_chunks: list[bytes] = []
+    output_transcript = ""
+
+    async with client.aio.live.connect(
+        model=model, config=types.LiveConnectConfig(**cfg_kwargs)
+    ) as session:
+        await session.send_realtime_input(text=user_message)
+
+        async for response in session.receive():
+            if getattr(response, "go_away", None) is not None:
+                break
+
+            sc = getattr(response, "server_content", None)
+            if sc is not None:
+                ot = getattr(sc, "output_transcription", None)
+                if ot:
+                    t = getattr(ot, "text", None)
+                    if t:
+                        output_transcript += t
+
+                mt = getattr(sc, "model_turn", None)
+                if mt:
+                    for part in getattr(mt, "parts", []) or []:
+                        inline = getattr(part, "inline_data", None)
+                        if inline and getattr(inline, "data", None):
+                            pcm_chunks.append(inline.data)
+
+                if getattr(sc, "turn_complete", False):
+                    break
+
+            if getattr(response, "turn_complete", False):
+                break
+
+    wav = pcm_to_wav(b"".join(pcm_chunks), OUTPUT_RATE) if pcm_chunks else b""
+    return output_transcript.strip(), wav
+
 
 async def gemini_live_speak(
     api_key:            str,
