@@ -23,9 +23,20 @@ NEXT_QUESTION_SYSTEM = (
     "Speak ONLY the question itself — no greetings, no commentary, just the question."
 )
 
+NEXT_PART3_QUESTION_SYSTEM = (
+    "{context}"
+    "You are conducting an IELTS Speaking Part 3 discussion. "
+    "The Part 2 topic was: {part2_topic}\n"
+    'The previous Part 3 question you asked was: "{prev_question}"\n'
+    "Listen to the candidate's answer, then ask ONE new IELTS Part 3 discussion question "
+    "that builds on the themes raised — expanding into broader social, cultural, or philosophical ideas. "
+    "The question should be more abstract and analytical than Part 1 questions. "
+    "Speak ONLY the question itself — no greetings, no commentary, just the question."
+)
+
 # ── Evaluation ────────────────────────────────────────────────────────────────
 
-EXAMINER_LIVE_SYSTEM = """\
+_EXAMINER_LIVE_BODY = """\
 
 You are an IELTS Speaking examiner giving comprehensive spoken feedback.
 The candidate was answering (Part {part}): "{question}"
@@ -66,6 +77,29 @@ appropriate for the part and topic.
 Speak directly to the candidate throughout. \
 Do NOT give band scores or numbers. Do NOT use bullet points.\
 """
+
+_LANGUAGE_INSTRUCTIONS: dict[str, str] = {
+    "en": "",
+    "vi": (
+        "\nDeliver your entire feedback in Vietnamese (tiếng Việt), "
+        "speaking naturally as a bilingual IELTS examiner. "
+        "IMPORTANT rules for Vietnamese delivery:\n"
+        "- Pronounce all English grammar/vocabulary terms (e.g. 'phrasal verb', 'collocation', "
+        "'discourse marker', 'intonation', 'fluency', 'coherence') in clear English when you say them.\n"
+        "- The model answer example MUST be spoken entirely in English.\n"
+        "- Introduce the example in Vietnamese (e.g. 'Đây là một câu trả lời mẫu:'), "
+        "then switch to English for the example itself.\n"
+    ),
+}
+
+
+def get_examiner_prompt(question: str, part: int, language: str = "vi") -> str:
+    lang_instruction = _LANGUAGE_INSTRUCTIONS.get(language, _LANGUAGE_INSTRUCTIONS["vi"])
+    return lang_instruction + _EXAMINER_LIVE_BODY.format(question=question, part=part)
+
+
+# Keep for backwards compatibility
+EXAMINER_LIVE_SYSTEM = _EXAMINER_LIVE_BODY
 
 # ── Question generation ───────────────────────────────────────────────────────
 

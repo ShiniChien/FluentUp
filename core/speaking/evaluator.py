@@ -15,7 +15,7 @@ import asyncio
 from core.config import LIVE_MODEL
 from core.live_session import gemini_live_once, pcm_to_wav, OUTPUT_RATE
 from core.models import CriterionFeedback, EvaluationResult
-from core.speaking.prompts import EXAMINER_LIVE_SYSTEM
+from core.speaking.prompts import get_examiner_prompt
 
 _EVAL_TIMEOUT = 90.0  # seconds — longer than before because thinking adds latency
 
@@ -30,12 +30,9 @@ class LiveEvaluationPipeline:
         audio_bytes: bytes,
         question:    str,
         part:        int = 1,
+        language:    str = "vi",
     ) -> tuple[EvaluationResult, str]:
-        """
-        Evaluate all four IELTS criteria in a single Gemini Live session.
-        Returns (EvaluationResult, input_transcript).
-        """
-        system_prompt = EXAMINER_LIVE_SYSTEM.format(question=question, part=part)
+        system_prompt = get_examiner_prompt(question=question, part=part, language=language)
         try:
             input_tr, output_tr, audio_pcm = await asyncio.wait_for(
                 gemini_live_once(

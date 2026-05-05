@@ -1,13 +1,51 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
+
 import streamlit as st
 
 from core.async_utils import run_async
+from core.config import DEFAULT_ACCENT
 from core.models import Turn
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
 from .eval import render_evaluation, render_streaming_eval
-from .helpers import clear_streaming_state
+from .helpers import _RESULT_LOCK, clear_streaming_state, hear_question
+
+
+def _start_next_part3_question_gen(prev_question: str, answer_wav: bytes) -> None:
+    qgen: QuestionGenerator | None = st.session_state.get("question_gen")
+    if qgen is None:
+        return
+    accent = st.session_state.get("examiner_accent", DEFAULT_ACCENT)
+    profile = st.session_state.get("user_profile")
+    sess: ExamSession = st.session_state.session
+    part2_topic = sess.part2_topic or ""
+
+    result: dict = {"ready": False, "text": "", "wav": b"", "_started": time.time()}
+    st.session_state["p3_next_q"] = result
+
+    def _worker() -> None:
+        try:
+            text, wav = asyncio.run(qgen.generate_next_part3_question(
+                prev_question=prev_question,
+                answer_wav=answer_wav,
+                part2_topic=part2_topic,
+                accent=accent,
+                profile=profile,
+            ))
+            with _RESULT_LOCK:
+                result["text"] = text
+                result["wav"] = wav
+        except Exception as exc:
+            with _RESULT_LOCK:
+                result["error"] = str(exc)
+        finally:
+            result["ready"] = True
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 def render_part3_loading() -> None:
@@ -20,17 +58,19 @@ def render_part3_loading() -> None:
         st.error("Gemini API key required to generate questions.")
         return
 
-    with st.spinner("Generating discussion questions..."):
+    with st.spinner("Generating first question..."):
         try:
             questions = run_async(
                 qgen.generate_part3_questions(
                     part2_topic=sess.part2_topic,
                     part2_cue_card=sess.part2_cue_card,
                     profile=st.session_state.get("user_profile"),
+                    n=1,
                 )
             )
             sess.part3_questions = questions
             sess.part3_index = 0
+            st.session_state.pop("p3_next_q", None)
             sess.phase = "part3_idle"
             st.rerun()
         except Exception as e:
@@ -41,13 +81,43 @@ def render_part3_loading() -> None:
 
 def render_part3_idle() -> None:
     sess: ExamSession = st.session_state.session
-    question = sess.current_part3_question()
     idx = sess.part3_index
-    total = len(sess.part3_questions)
 
     st.header("Part 3 — Two-way Discussion")
-    st.caption(f"Question {idx + 1} of {total}")
-    st.progress((idx) / total)
+
+    next_q: dict | None = st.session_state.get("p3_next_q")
+    if next_q is not None and not next_q.get("ready", False):
+        elapsed = time.time() - next_q.get("_started", time.time())
+        if elapsed > 45:
+            next_q["error"] = "Question generation timed out."
+            next_q["ready"] = True
+            st.rerun()
+            return
+        st.caption(f"Question {idx + 1}")
+        st.info("Preparing next question...")
+        time.sleep(0.5)
+        st.rerun()
+        return
+
+    if next_q is not None and next_q.get("ready", False):
+        if next_q.get("error"):
+            st.warning(f"Could not generate next question: {next_q['error']}")
+        q_text = next_q.get("text", "").strip()
+        q_wav = next_q.get("wav", b"")
+        if q_text:
+            sess.part3_questions.append(q_text)
+            if q_wav:
+                st.session_state["p3_next_q_wav"] = q_wav
+        st.session_state.pop("p3_next_q", None)
+        st.rerun()
+        return
+
+    question = sess.current_part3_question()
+    st.caption(f"Question {idx + 1}")
+
+    next_wav = st.session_state.pop("p3_next_q_wav", None)
+    if next_wav:
+        st.audio(next_wav, format="audio/wav", autoplay=True)
 
     if question is None:
         sess.phase = "part3_summary"
@@ -60,12 +130,11 @@ def render_part3_idle() -> None:
         unsafe_allow_html=True,
     )
 
-    from .helpers import hear_question
     hear_question(question, key=f"p3_tts_{idx}")
 
     audio = st.audio_input("Record your answer", key=f"p3_audio_{idx}")
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
         if audio is not None:
             wav_bytes = audio.getvalue()
@@ -73,14 +142,18 @@ def render_part3_idle() -> None:
                 st.warning("Recording too short. Please try again.")
             else:
                 sess.turns.append(Turn(part=3, question=question, audio_bytes=wav_bytes))
+                sess.part3_index += 1
+                _start_next_part3_question_gen(question, wav_bytes)
                 clear_streaming_state()
                 sess.phase = "part3_result"
                 st.rerun()
     with col2:
         if st.button("Skip", key=f"p3_skip_{idx}", use_container_width=True):
             sess.part3_index += 1
-            if sess.part3_index >= total:
-                sess.phase = "part3_summary"
+            st.rerun()
+    with col3:
+        if st.button("End Part 3", key=f"p3_end_{idx}", use_container_width=True):
+            sess.phase = "part3_summary"
             st.rerun()
 
 
@@ -95,10 +168,9 @@ def render_part3_result() -> None:
 
     turn = p3_turns[-1]
     idx = sess.part3_index
-    total = len(sess.part3_questions)
 
     st.header("Part 3 — Evaluation")
-    st.caption(f"Question {idx + 1} of {total}")
+    st.caption(f"Question {idx}")
 
     if turn.result is None:
         if render_streaming_eval(turn, part=3):
@@ -111,20 +183,22 @@ def render_part3_result() -> None:
     render_evaluation(turn.result)
 
     st.markdown("---")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        next_label = "Next Question" if (idx + 1) < total else "View Part 3 Summary"
-        if st.button(next_label, type="primary", use_container_width=True):
-            sess.part3_index += 1
-            if sess.part3_index >= total:
-                sess.phase = "part3_summary"
-            else:
-                sess.phase = "part3_idle"
+        if st.button("Next Question", type="primary", use_container_width=True):
+            sess.phase = "part3_idle"
             st.rerun()
     with col2:
         if st.button("Retry This Question", use_container_width=True):
             sess.turns.pop()
+            sess.part3_index -= 1
+            st.session_state.pop("p3_next_q", None)
+            st.session_state.pop("p3_next_q_wav", None)
             sess.phase = "part3_idle"
+            st.rerun()
+    with col3:
+        if st.button("End Part 3", use_container_width=True):
+            sess.phase = "part3_summary"
             st.rerun()
 
 

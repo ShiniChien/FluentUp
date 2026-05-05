@@ -9,6 +9,7 @@ from core.openrouter import async_chat
 from core.speaking.prompts import (
     CUE_CARD_PROMPT,
     NEXT_QUESTION_SYSTEM,
+    NEXT_PART3_QUESTION_SYSTEM,
     PART3_QUESTION_PROMPT,
     PART3_RANDOM_QUESTION_PROMPT,
 )
@@ -96,6 +97,34 @@ class QuestionGenerator:
             context += profile_ctx
         system_prompt = NEXT_QUESTION_SYSTEM.format(
             context=context,
+            prev_question=prev_question,
+        )
+        return await gemini_live_next_question(
+            api_key=self._api_key,
+            system_prompt=system_prompt,
+            answer_wav=answer_wav,
+            model=self._live_model,
+        )
+
+    async def generate_next_part3_question(
+        self,
+        prev_question: str,
+        answer_wav: bytes,
+        part2_topic: str = "",
+        accent: str = DEFAULT_ACCENT,
+        profile: "UserProfile | None" = None,
+    ) -> tuple[str, bytes]:
+        """Generate the next Part 3 question from previous question text + audio of answer."""
+        accent_instruction = EXAMINER_ACCENTS.get(accent, EXAMINER_ACCENTS[DEFAULT_ACCENT])
+        profile_ctx = profile.prompt_context() if profile else ""
+        context = ""
+        if accent_instruction.strip():
+            context += accent_instruction + "\n\n"
+        if profile_ctx.strip():
+            context += profile_ctx + "\n\n"
+        system_prompt = NEXT_PART3_QUESTION_SYSTEM.format(
+            context=context,
+            part2_topic=part2_topic or "a general topic",
             prev_question=prev_question,
         )
         return await gemini_live_next_question(

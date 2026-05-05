@@ -4,8 +4,6 @@ core/store.py
 MongoDB persistence layer via motor (async).
 
 Collections:
-  sessions   — completed exam sessions (transcripts + text feedback, no audio bytes)
-  profiles   — user profiles (name, age, occupation)
   vocabulary — personal dictionary entries saved
   users      — app accounts (username/password_hash/role + profile fields)
 """
@@ -17,8 +15,6 @@ from typing import Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
-
-from core.models import ExamSummary
 
 _WRITE_RETRIES = 3
 _RETRY_DELAY = 1.0
@@ -46,60 +42,8 @@ class FluentUpStore:
             serverSelectionTimeoutMS=5000,
         )
         db = self._client["fluentup"]
-        self._sessions = db["sessions"]
         self._vocabulary = db["vocabulary"]
         self._users = db["users"]
-
-    async def save_session(
-        self, summary: ExamSummary, user_id: str = "default"
-    ) -> str:
-        """Persist a completed session. Audio bytes are NOT stored."""
-        doc: dict[str, Any] = {
-            "user_id":    user_id,
-            "created_at": datetime.datetime.utcnow(),
-            "turns": [
-                {
-                    "part":       t.part,
-                    "question":   t.question,
-                    "transcript": t.result.transcript if t.result else "",
-                    "feedbacks": [
-                        {
-                            "criterion": f.criterion,
-                            "feedback":  f.feedback,
-                        }
-                        for f in t.result.feedbacks
-                    ] if t.result else [],
-                }
-                for t in summary.turns
-            ],
-        }
-        result = await _retry_write(self._sessions.insert_one, doc)
-        return str(result.inserted_id)
-
-    async def get_recent_sessions(
-        self, user_id: str = "default", limit: int = 10
-    ) -> list[dict]:
-        """Return recent sessions (without turn details) for history panel."""
-        cursor = self._sessions.find(
-            {"user_id": user_id},
-            sort=[("created_at", -1)],
-            limit=limit,
-            projection={"turns": 0},
-        )
-        docs = await cursor.to_list(length=limit)
-        for d in docs:
-            d["_id"] = str(d["_id"])
-        return docs
-
-    async def get_session(self, session_id: str) -> dict | None:
-        doc = await self._sessions.find_one({"_id": ObjectId(session_id)})
-        if doc:
-            doc["_id"] = str(doc["_id"])
-        return doc
-
-    async def delete_session(self, session_id: str) -> bool:
-        result = await self._sessions.delete_one({"_id": ObjectId(session_id)})
-        return result.deleted_count > 0
 
     async def ping(self) -> bool:
         try:

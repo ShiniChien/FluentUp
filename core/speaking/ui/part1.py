@@ -7,7 +7,7 @@ import time
 import streamlit as st
 
 from core.async_utils import run_async
-from core.config import DEFAULT_ACCENT, PART1_QUESTIONS_PER_SESSION
+from core.config import DEFAULT_ACCENT
 from core.models import Turn, UserProfile
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
@@ -85,7 +85,6 @@ def render_part1_loading() -> None:
 def render_part1_idle() -> None:
     sess: ExamSession = st.session_state.session
     idx = sess.part1_index
-    max_q = PART1_QUESTIONS_PER_SESSION
 
     st.header("Part 1 — Introduction & Interview")
 
@@ -97,8 +96,7 @@ def render_part1_idle() -> None:
             next_q["ready"] = True
             st.rerun()
             return
-        st.caption(f"Question {idx + 1} (up to {max_q})")
-        st.progress(idx / max_q)
+        st.caption(f"Question {idx + 1}")
         st.info("Preparing next question...")
         time.sleep(0.5)
         st.rerun()
@@ -118,8 +116,7 @@ def render_part1_idle() -> None:
         return
 
     question = sess.current_part1_question()
-    st.caption(f"Question {idx + 1} (up to {max_q})")
-    st.progress(idx / max_q)
+    st.caption(f"Question {idx + 1}")
 
     next_wav = st.session_state.pop("p1_next_q_wav", None)
     if next_wav:
@@ -151,15 +148,12 @@ def render_part1_idle() -> None:
                 turn_idx = len(sess.turns) - 1
                 sess.part1_index += 1
                 start_bg_turn_eval(sess.turns[turn_idx], turn_idx, part=1)
-                if sess.part1_index < max_q:
-                    _start_next_question_gen(question, wav_bytes)
-                else:
-                    st.session_state.pop("p1_next_q", None)
+                _start_next_question_gen(question, wav_bytes)
                 st.rerun()
     with col2:
         if st.button("Skip", key=f"p1_skip_{idx}", use_container_width=True):
             sess.part1_index += 1
-            if sess.part1_index >= max_q or not sess.current_part1_question():
+            if not sess.current_part1_question():
                 sess.phase = "part1_summary"
             st.rerun()
     with col3:

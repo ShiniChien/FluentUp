@@ -81,6 +81,13 @@ ACCENT_LABELS: dict[str, str] = {
     "au": "Australian",
 }
 
+DEFAULT_FEEDBACK_LANGUAGE = "vi"
+
+FEEDBACK_LANGUAGE_LABELS: dict[str, str] = {
+    "vi": "Tiếng Việt",
+    "en": "English",
+}
+
 LISTENING_TURNS_MIN = 1
 LISTENING_TURNS_MAX = 30
 

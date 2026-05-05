@@ -15,6 +15,7 @@ def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
     evaluator: LiveEvaluationPipeline | None = st.session_state.get("evaluator")
     if evaluator is None:
         return
+    language: str = st.session_state.get("feedback_language", "vi")
     turn_evals: dict = st.session_state.setdefault("turn_evals", {})
     result: dict = {"_started": time.time()}
     turn_evals[turn_idx] = result
@@ -25,6 +26,7 @@ def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
                 audio_bytes=turn.audio_bytes,
                 question=turn.question,
                 part=part,
+                language=language,
             ))
             with _RESULT_LOCK:
                 result["done"] = eval_result
@@ -72,6 +74,7 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
     evaluator: LiveEvaluationPipeline | None = st.session_state.get("evaluator")
     if evaluator is None:
         return
+    language: str = st.session_state.get("feedback_language", "vi")
 
     result: dict = {"_started": time.time()}
     st.session_state["eval_result"] = result
@@ -83,6 +86,7 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
                 audio_bytes=turn.audio_bytes,
                 question=turn.question,
                 part=part,
+                language=language,
             ))
             with _RESULT_LOCK:
                 result["done"] = eval_result

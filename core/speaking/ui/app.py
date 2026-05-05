@@ -4,7 +4,7 @@ import streamlit as st
 
 from core.auth import current_user
 from core.models import UserProfile
-from core.shared import load_secrets, get_store
+from core.shared import load_secrets
 from core.speaking.evaluator import LiveEvaluationPipeline
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
@@ -22,7 +22,7 @@ _STATE_VERSION = 8
 
 def _init_state(secrets: dict) -> None:
     if st.session_state.get("_state_version") != _STATE_VERSION:
-        for key in ("evaluator", "question_gen", "store"):
+        for key in ("evaluator", "question_gen"):
             st.session_state.pop(key, None)
         st.session_state["_state_version"] = _STATE_VERSION
 
@@ -50,7 +50,6 @@ def _init_state(secrets: dict) -> None:
             )
         else:
             st.session_state.question_gen = None
-    get_store(secrets)
 
     # Sync user_profile from logged-in account if not set
     if "user_profile" not in st.session_state:

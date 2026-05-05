@@ -2,81 +2,10 @@ from __future__ import annotations
 
 import streamlit as st
 
-from core.async_utils import run_async
 from core.auth import current_user
-from core.config import ACCENT_LABELS, DEFAULT_ACCENT
+from core.config import ACCENT_LABELS, DEFAULT_ACCENT, DEFAULT_FEEDBACK_LANGUAGE, FEEDBACK_LANGUAGE_LABELS
 from core.speaking.session import ExamSession
-from core.store import FluentUpStore
 from .helpers import clear_streaming_state
-
-
-def render_history_detail(doc: dict) -> None:
-    with st.container():
-        st.markdown("---")
-        for turn in doc.get("turns", []):
-            part     = turn.get("part", "?")
-            question = turn.get("question", "")
-            transcript = turn.get("transcript", "")
-            with st.expander(f"Part {part} — {question[:60]}"):
-                if transcript:
-                    st.markdown(f"**Transcript:** {transcript}")
-                for fb in turn.get("feedbacks", []):
-                    crit = fb.get("criterion", "")
-                    text = fb.get("feedback", "")
-                    st.markdown(f"**{crit}:** {text}")
-        st.markdown("---")
-
-
-def _render_sidebar_history(store: FluentUpStore) -> None:
-    try:
-        history = run_async(store.get_recent_sessions(limit=10))
-    except Exception as e:
-        st.caption(f"Could not load: {e}")
-        return
-
-    if not history:
-        st.caption("No saved sessions yet.")
-        return
-
-    view_id: str | None = st.session_state.get("history_view_id")
-
-    for h in history:
-        sid = h["_id"]
-        ts = h.get("created_at", "")
-        if hasattr(ts, "strftime"):
-            ts = ts.strftime("%m-%d %H:%M")
-
-        r1, r2 = st.columns([5, 2])
-        with r1:
-            st.markdown(
-                f"<div style='border-left:3px solid #1565C0;padding:3px 8px;"
-                f"font-size:0.85em'>{ts}</div>",
-                unsafe_allow_html=True,
-            )
-        with r2:
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("📂", key=f"sb_load_{sid}", help="Load"):
-                    st.session_state["history_view_id"] = None if view_id == sid else sid
-                    st.rerun()
-            with c2:
-                if st.button("🗑", key=f"sb_del_{sid}", help="Delete"):
-                    try:
-                        run_async(store.delete_session(sid))
-                        if view_id == sid:
-                            st.session_state.pop("history_view_id", None)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Delete failed: {e}")
-
-        if view_id == sid:
-            try:
-                doc = run_async(store.get_session(sid))
-                if doc:
-                    render_history_detail(doc)
-            except Exception as e:
-                st.caption(f"Load failed: {e}")
-
 
 
 
@@ -112,6 +41,21 @@ def render_sidebar(secrets: dict) -> None:
         st.session_state["examiner_accent"] = chosen
 
         st.divider()
+        st.markdown("**Ngôn ngữ nhận xét**")
+        lang_options = list(FEEDBACK_LANGUAGE_LABELS.keys())
+        current_lang = st.session_state.get("feedback_language", DEFAULT_FEEDBACK_LANGUAGE)
+        lang_idx = lang_options.index(current_lang) if current_lang in lang_options else 0
+        chosen_lang = st.selectbox(
+            "Feedback language",
+            options=lang_options,
+            format_func=lambda l: FEEDBACK_LANGUAGE_LABELS[l],
+            index=lang_idx,
+            key="lang_select",
+            label_visibility="collapsed",
+        )
+        st.session_state["feedback_language"] = chosen_lang
+
+        st.divider()
 
         sess: ExamSession = st.session_state.session
         phase = sess.phase
@@ -132,13 +76,6 @@ def render_sidebar(secrets: dict) -> None:
             st.caption("No answers yet.")
 
         st.divider()
-
-        store: FluentUpStore | None = st.session_state.get("store")
-        if store is not None:
-            st.markdown("**Session History**")
-            with st.expander("View / manage", expanded=False):
-                _render_sidebar_history(store)
-            st.divider()
 
         if phase != "home":
             if st.button("New Session", use_container_width=True):
