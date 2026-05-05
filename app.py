@@ -4,9 +4,10 @@ app.py — FluentUp navigation hub
 Run locally:
     streamlit run app.py
 
-Defines the two-page navigation:
-  • Speaking Practice  (pages/1_FluentUp.py)
-  • EchoLab Listening  (pages/2_EchoLab.py)
+Pages:
+  • Home         (pages/0_Home.py)      — landing, no sidebar
+  • Speaking     (pages/1_Speaking.py)  — IELTS speaking practice
+  • Listening    (pages/2_Listening.py) — IELTS listening practice
 """
 import streamlit as st
 
@@ -18,10 +19,13 @@ st.set_page_config(
 
 pg = st.navigation(
     {
+        "FluentUp": [
+            st.Page("pages/0_Home.py",      title="Home",      icon="🏠", default=True),
+        ],
         "Practice": [
-            st.Page("pages/1_FluentUp.py", title="FluentUp", icon="🗣️"),
-            st.Page("pages/2_EchoLab.py",  title="EchoLab", icon="🎧"),
-        ]
+            st.Page("pages/1_Speaking.py",  title="Speaking",  icon="🗣️"),
+            st.Page("pages/2_Listening.py", title="Listening", icon="🎧"),
+        ],
     }
 )
 pg.run()

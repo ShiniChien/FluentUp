@@ -16,7 +16,6 @@ class UserProfile:
     age: int
     occupation: str          # "student" | "worker" | "other"
     occupation_detail: str   # e.g. "studying Computer Science at HUST"
-    profile_id: str = ""
     gender: str = "male"     # "male" | "female" | "other"
 
     def prompt_context(self) -> str:
@@ -24,6 +23,19 @@ class UserProfile:
             f"Candidate: {self.name}, {self.age} years old ({self.gender}), {self.occupation_detail}. "
             f"Tailor topics to be relevant to their background.\n\n"
         )
+
+
+@dataclass
+class User:
+    username: str
+    password_hash: str
+    role: str = "user"           # "root" | "user"
+    name: str = ""
+    age: int = 22
+    occupation: str = "student"  # "student" | "worker" | "other"
+    occupation_detail: str = ""
+    gender: str = "male"         # "male" | "female" | "other"
+    user_id: str = ""
 
 
 @dataclass

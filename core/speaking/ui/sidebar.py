@@ -3,8 +3,8 @@ from __future__ import annotations
 import streamlit as st
 
 from core.async_utils import run_async
+from core.auth import current_user
 from core.config import ACCENT_LABELS, DEFAULT_ACCENT
-from core.models import UserProfile
 from core.speaking.session import ExamSession
 from core.store import FluentUpStore
 from .helpers import clear_streaming_state
@@ -78,97 +78,23 @@ def _render_sidebar_history(store: FluentUpStore) -> None:
                 st.caption(f"Load failed: {e}")
 
 
-def _render_sidebar_profile() -> None:
-    st.markdown("**Your Profile**")
-    store: FluentUpStore | None = st.session_state.get("store")
-    current: UserProfile | None = st.session_state.get("user_profile")
-    sess: ExamSession = st.session_state.session
-
-    if current:
-        gender_label = {"male": "M", "female": "F", "other": "—"}.get(current.gender, "")
-        st.markdown(
-            f"<div style='background:#E3F2FD;border-left:3px solid #1565C0;"
-            f"padding:6px 10px;border-radius:4px;font-size:0.85em;color:#1a1a1a'>"
-            f"<b>{current.name}</b>, {current.age} ({gender_label})<br>"
-            f"<span style='color:#444'>{current.occupation_detail[:45]}</span></div>",
-            unsafe_allow_html=True,
-        )
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("Edit", key="sb_edit_profile", use_container_width=True):
-                sess.phase = "profile_q1"
-                st.rerun()
-        with c2:
-            if st.button("Clear", key="sb_clear_profile", use_container_width=True):
-                st.session_state.pop("user_profile", None)
-                st.rerun()
-    else:
-        if st.button("Set up profile", key="sb_create_profile", use_container_width=True):
-            sess.phase = "profile_q1"
-            st.rerun()
-
-    if store:
-        if "sidebar_profiles_cache" not in st.session_state:
-            try:
-                st.session_state["sidebar_profiles_cache"] = run_async(store.get_profiles())
-            except Exception:
-                st.session_state["sidebar_profiles_cache"] = []
-
-        profiles: list[dict] = st.session_state.get("sidebar_profiles_cache", [])
-        if profiles:
-            options_ids = [""] + [p["_id"] for p in profiles]
-            current_id = current.profile_id if current else ""
-            try:
-                sel_index = options_ids.index(current_id)
-            except ValueError:
-                sel_index = 0
-
-            def _fmt(pid: str) -> str:
-                if not pid:
-                    return "— select saved profile —"
-                p = next((x for x in profiles if x["_id"] == pid), None)
-                return f"{p['name']}, {p['age']} — {p.get('occupation_detail','')[:30]}" if p else pid
-
-            selected = st.selectbox(
-                "Saved profiles",
-                options=options_ids,
-                format_func=_fmt,
-                index=sel_index,
-                key="sb_profile_select",
-                label_visibility="collapsed",
-            )
-            if selected and selected != current_id:
-                p = next((x for x in profiles if x["_id"] == selected), None)
-                if p:
-                    st.session_state["user_profile"] = UserProfile(
-                        name=p["name"],
-                        age=p["age"],
-                        occupation=p.get("occupation", "other"),
-                        occupation_detail=p.get("occupation_detail", ""),
-                        profile_id=p["_id"],
-                        gender=p.get("gender", "male"),
-                    )
-                    st.rerun()
-
-            if selected:
-                if st.button("Delete this profile", key="sb_del_profile", use_container_width=True):
-                    try:
-                        run_async(store.delete_profile(selected))
-                        if current and current.profile_id == selected:
-                            st.session_state.pop("user_profile", None)
-                        st.session_state.pop("sidebar_profiles_cache", None)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Delete failed: {e}")
 
 
 def render_sidebar(secrets: dict) -> None:
     with st.sidebar:
-        st.markdown("## FluentUp")
+        st.markdown("## Speaking")
         st.caption("IELTS Speaking Practice")
 
-        st.divider()
-        _render_sidebar_profile()
+        # User info
+        user = current_user()
+        if user:
+            name = user.get("name") or user.get("username", "")
+            st.markdown(
+                f"<div style='background:#E3F2FD;border-left:3px solid #1565C0;"
+                f"padding:6px 10px;border-radius:4px;font-size:0.85em;color:#1a1a1a'>"
+                f"👤 <b>{name}</b></div>",
+                unsafe_allow_html=True,
+            )
 
         st.divider()
         st.markdown("**Examiner Accent**")

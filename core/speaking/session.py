@@ -9,9 +9,6 @@ from core.config import PREP_SECONDS, SPEAK_SECONDS  # noqa: F401 – re-exporte
 
 Phase = Literal[
     "home",
-    "intro",
-    "profile_q1", "profile_q2", "profile_q3",
-    "profile_confirm",
     "part1_loading", "part1_idle", "part1_summary",
     "part2_idle", "part2_thinking", "part2_recording", "part2_evaluating", "part2_result",
     "part3_loading", "part3_idle", "part3_result", "part3_summary",

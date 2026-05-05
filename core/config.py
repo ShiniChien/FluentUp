@@ -84,6 +84,6 @@ ACCENT_LABELS: dict[str, str] = {
 LISTENING_TURNS_MIN = 1
 LISTENING_TURNS_MAX = 30
 
-# ── EchoLab dialogue speaker colors ──────────────────────────────────────────
+# ── Listening dialogue speaker colors ──────────────────────────────────────────
 
 SPEAKER_COLORS: dict[str, str] = {"A": "#1565C0", "B": "#6A1B9A"}

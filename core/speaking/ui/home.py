@@ -2,27 +2,27 @@ from __future__ import annotations
 
 import streamlit as st
 
-from core.models import UserProfile
+from core.auth import current_user
 from core.speaking.session import ExamSession
 
 
 def render_home() -> None:
-    st.title("FluentUp")
-    st.subheader("IELTS Speaking Practice")
+    st.title("Speaking Practice")
+    st.subheader("IELTS Speaking — Part 1 / 2 / 3")
 
-    profile: UserProfile | None = st.session_state.get("user_profile")
+    user = current_user()
     sess: ExamSession = st.session_state.session
 
-    if profile:
+    if user:
+        name = user.get("name") or user.get("username", "")
+        detail = user.get("occupation_detail", "")
+        age = user.get("age", "")
         st.markdown(
             f"<div style='background:#E3F2FD;border-left:4px solid #1565C0;"
             f"border-radius:6px;padding:10px 16px;margin-bottom:16px;color:#1a1a1a'>"
-            f"👤 <b>{profile.name}</b>, {profile.age} — {profile.occupation_detail}</div>",
+            f"👤 <b>{name}</b>{', ' + str(age) if age else ''}"
+            f"{' — ' + detail if detail else ''}</div>",
             unsafe_allow_html=True,
-        )
-    else:
-        st.info(
-            "💡 Set up your profile in the sidebar so questions can be tailored to your background."
         )
 
     st.markdown("Choose a part to start practicing:")

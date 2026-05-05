@@ -6,21 +6,19 @@ MongoDB persistence layer via motor (async).
 Collections:
   sessions   — completed exam sessions (transcripts + text feedback, no audio bytes)
   profiles   — user profiles (name, age, occupation)
-  vocabulary — personal dictionary entries saved from EchoLab
+  vocabulary — personal dictionary entries saved
+  users      — app accounts (username/password_hash/role + profile fields)
 """
 from __future__ import annotations
 
 import asyncio
 import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from core.models import ExamSummary
-
-if TYPE_CHECKING:
-    from core.models import UserProfile
 
 _WRITE_RETRIES = 3
 _RETRY_DELAY = 1.0
@@ -43,14 +41,14 @@ class FluentUpStore:
     def __init__(self, uri: str, username: str, password: str) -> None:
         self._client = AsyncIOMotorClient(
             uri,
-            username=username,
-            password=password,
+            username=username if username else None,
+            password=password if password else None,
             serverSelectionTimeoutMS=5000,
         )
-        db = self._client["core"]
+        db = self._client["fluentup"]
         self._sessions = db["sessions"]
-        self._profiles = db["profiles"]
         self._vocabulary = db["vocabulary"]
+        self._users = db["users"]
 
     async def save_session(
         self, summary: ExamSummary, user_id: str = "default"
@@ -110,43 +108,6 @@ class FluentUpStore:
         except Exception:
             return False
 
-    # ── Profile CRUD ──────────────────────────────────────────────────────────
-
-    async def save_profile(self, profile: "UserProfile") -> str:
-        """Insert or update a profile. Updates in-place if profile_id is set."""
-        doc: dict[str, Any] = {
-            "name":               profile.name,
-            "age":                profile.age,
-            "occupation":         profile.occupation,
-            "occupation_detail":  profile.occupation_detail,
-            "gender":             profile.gender,
-            "updated_at":         datetime.datetime.utcnow(),
-        }
-        if profile.profile_id:
-            await _retry_write(
-                self._profiles.update_one,
-                {"_id": ObjectId(profile.profile_id)},
-                {"$set": doc},
-                upsert=True,
-            )
-            return profile.profile_id
-        doc["created_at"] = doc["updated_at"]
-        result = await _retry_write(self._profiles.insert_one, doc)
-        return str(result.inserted_id)
-
-    async def get_profiles(self, limit: int = 20) -> list[dict]:
-        cursor = self._profiles.find(
-            {}, sort=[("updated_at", -1)], limit=limit
-        )
-        docs = await cursor.to_list(length=limit)
-        for d in docs:
-            d["_id"] = str(d["_id"])
-        return docs
-
-    async def delete_profile(self, profile_id: str) -> bool:
-        result = await self._profiles.delete_one({"_id": ObjectId(profile_id)})
-        return result.deleted_count > 0
-
     # ── Vocabulary CRUD ───────────────────────────────────────────────────────
 
     async def save_vocab(
@@ -176,4 +137,61 @@ class FluentUpStore:
 
     async def delete_vocab(self, entry_id: str) -> bool:
         result = await self._vocabulary.delete_one({"_id": ObjectId(entry_id)})
+        return result.deleted_count > 0
+
+    # ── User account CRUD ─────────────────────────────────────────────────────
+
+    async def get_user_by_username(self, username: str) -> dict | None:
+        doc = await self._users.find_one({"username": username})
+        if doc:
+            doc["_id"] = str(doc["_id"])
+        return doc
+
+    async def list_users(self) -> list[dict]:
+        cursor = self._users.find({}, sort=[("created_at", 1)])
+        docs = await cursor.to_list(length=500)
+        for d in docs:
+            d["_id"] = str(d["_id"])
+        return docs
+
+    async def create_user(
+        self,
+        username: str,
+        password_hash: str,
+        name: str = "",
+        age: int = 22,
+        occupation: str = "student",
+        occupation_detail: str = "",
+        gender: str = "male",
+    ) -> str | None:
+        """Insert a new user. Returns inserted _id, or None if username taken."""
+        existing = await self._users.find_one({"username": username})
+        if existing:
+            return None
+        now = datetime.datetime.utcnow()
+        result = await _retry_write(self._users.insert_one, {
+            "username":          username,
+            "password_hash":     password_hash,
+            "role":              "user",
+            "name":              name,
+            "age":               age,
+            "occupation":        occupation,
+            "occupation_detail": occupation_detail,
+            "gender":            gender,
+            "created_at":        now,
+            "updated_at":        now,
+        })
+        return str(result.inserted_id)
+
+    async def update_user(self, user_id: str, **fields: Any) -> bool:
+        fields["updated_at"] = datetime.datetime.utcnow()
+        result = await _retry_write(
+            self._users.update_one,
+            {"_id": ObjectId(user_id)},
+            {"$set": fields},
+        )
+        return result.matched_count > 0
+
+    async def delete_user(self, user_id: str) -> bool:
+        result = await self._users.delete_one({"_id": ObjectId(user_id)})
         return result.deleted_count > 0

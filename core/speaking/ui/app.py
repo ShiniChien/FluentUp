@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import streamlit as st
 
+from core.auth import current_user
+from core.models import UserProfile
 from core.shared import load_secrets, get_store
 from core.speaking.evaluator import LiveEvaluationPipeline
 from core.speaking.question_gen import QuestionGenerator
@@ -9,14 +11,13 @@ from core.speaking.session import ExamSession
 
 from .helpers import clear_streaming_state
 from .sidebar import render_sidebar
-from .profile import PROFILE_QUESTIONS, render_intro, render_profile_question, render_profile_confirm
 from .home import render_home
 from .part1 import render_part1_loading, render_part1_idle, render_part1_summary
 from .part2 import render_part2_idle, render_part2_thinking, render_part2_recording, render_part2_evaluating, render_part2_result
 from .part3 import render_part3_loading, render_part3_idle, render_part3_result, render_part3_summary
 from .summary import render_session_summary
 
-_STATE_VERSION = 7
+_STATE_VERSION = 8
 
 
 def _init_state(secrets: dict) -> None:
@@ -51,6 +52,18 @@ def _init_state(secrets: dict) -> None:
             st.session_state.question_gen = None
     get_store(secrets)
 
+    # Sync user_profile from logged-in account if not set
+    if "user_profile" not in st.session_state:
+        user = current_user()
+        if user and user.get("name"):
+            st.session_state["user_profile"] = UserProfile(
+                name=user.get("name", ""),
+                age=int(user.get("age") or 22),
+                occupation=user.get("occupation", "student"),
+                occupation_detail=user.get("occupation_detail", ""),
+                gender=user.get("gender", "male"),
+            )
+
 
 def main() -> None:
     secrets = load_secrets()
@@ -68,11 +81,6 @@ def main() -> None:
 
     dispatch = {
         "home":             render_home,
-        "intro":            render_intro,
-        "profile_q1":       lambda: render_profile_question("profile_q1", PROFILE_QUESTIONS[0][1], "profile_q2"),
-        "profile_q2":       lambda: render_profile_question("profile_q2", PROFILE_QUESTIONS[1][1], "profile_q3"),
-        "profile_q3":       lambda: render_profile_question("profile_q3", PROFILE_QUESTIONS[2][1], "profile_confirm"),
-        "profile_confirm":  render_profile_confirm,
         "part1_loading":    render_part1_loading,
         "part1_idle":       render_part1_idle,
         "part1_summary":    render_part1_summary,

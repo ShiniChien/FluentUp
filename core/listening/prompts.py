@@ -1,7 +1,7 @@
 """
 core/listening/prompts.py
 -------------------------
-Prompt templates for the listening practice page (EchoLab).
+Prompt templates for the listening practice page.
 """
 from __future__ import annotations
 

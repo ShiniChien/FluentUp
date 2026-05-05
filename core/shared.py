@@ -1,7 +1,7 @@
 """
 core/shared.py
 ------------------
-Utilities shared across all Streamlit pages (FluentUp speaking + EchoLab listening).
+Utilities shared across all Streamlit pages (Speaking + Listening).
 
 Centralises secrets loading and store initialisation so each page does not
 duplicate these concerns.
@@ -46,7 +46,7 @@ def get_store(secrets: dict | None = None) -> FluentUpStore | None:
     if secrets is None:
         secrets = load_secrets()
 
-    if secrets["mongodb_uri"] and secrets["mongodb_username"]:
+    if secrets["mongodb_uri"]:
         get_bg_loop()  # Motor client must bind to an already-running loop
         store = FluentUpStore(
             uri=secrets["mongodb_uri"],

@@ -16,9 +16,9 @@ _Q_TYPE_COLOR = "#7B5EA7"
 
 def render_idle(secrets: dict) -> None:
     st.markdown(
-        "<h1 style='margin-bottom:4px'>🎧 EchoLab</h1>"
-        "<p style='color:#666;margin-top:0'>Practise your English listening — "
-        "hear a dialogue, then transcribe or fill in the blanks.</p>",
+        "<h1 style='margin-bottom:4px'>🎧 Listening Practice</h1>"
+        "<p style='color:#666;margin-top:0'>Nghe hội thoại AI rồi điền từ còn thiếu "
+        "hoặc luyện ghi chép toàn bộ.</p>",
         unsafe_allow_html=True,
     )
 
@@ -176,7 +176,7 @@ def render_generating(secrets: dict) -> None:
     q_type = st.session_state["echo_q_type"]
 
     st.markdown(
-        f"<h1 style='margin-bottom:2px'>🎧 EchoLab</h1>"
+        f"<h1 style='margin-bottom:2px'>🎧 Listening Practice</h1>"
         f"<p style='color:#444'>Topic: <b>{topic}</b> &nbsp;|&nbsp; "
         f"Voice A: <code>{voice_a}</code> &nbsp;|&nbsp; "
         f"Voice B: <code>{voice_b}</code></p>",
@@ -290,7 +290,7 @@ def render_submitted() -> None:
     topic    = st.session_state["echo_topic"]
 
     st.markdown(
-        f"<h1 style='margin-bottom:2px'>🎧 EchoLab — Results</h1>"
+        f"<h1 style='margin-bottom:2px'>🎧 Listening — Results</h1>"
         f"<p style='color:#444'>Topic: <b>{topic}</b></p>",
         unsafe_allow_html=True,
     )
