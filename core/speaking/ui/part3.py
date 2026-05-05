@@ -134,7 +134,7 @@ def render_part3_idle() -> None:
 
     audio = st.audio_input("Record your answer", key=f"p3_audio_{idx}")
 
-    col1, col2, col3 = st.columns([3, 1, 1])
+    col1, col2 = st.columns([4, 1])
     with col1:
         if audio is not None:
             wav_bytes = audio.getvalue()
@@ -148,10 +148,6 @@ def render_part3_idle() -> None:
                 sess.phase = "part3_result"
                 st.rerun()
     with col2:
-        if st.button("Skip", key=f"p3_skip_{idx}", use_container_width=True):
-            sess.part3_index += 1
-            st.rerun()
-    with col3:
         if st.button("End Part 3", key=f"p3_end_{idx}", use_container_width=True):
             sess.phase = "part3_summary"
             st.rerun()

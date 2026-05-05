@@ -137,7 +137,7 @@ def render_part1_idle() -> None:
 
     audio = st.audio_input("Record your answer", key=f"p1_audio_{idx}")
 
-    col1, col2, col3 = st.columns([4, 1, 1])
+    col1, col2 = st.columns([5, 1])
     with col1:
         if audio is not None:
             wav_bytes = audio.getvalue()
@@ -151,12 +151,6 @@ def render_part1_idle() -> None:
                 _start_next_question_gen(question, wav_bytes)
                 st.rerun()
     with col2:
-        if st.button("Skip", key=f"p1_skip_{idx}", use_container_width=True):
-            sess.part1_index += 1
-            if not sess.current_part1_question():
-                sess.phase = "part1_summary"
-            st.rerun()
-    with col3:
         if st.button("End Part 1", key=f"p1_end_{idx}", use_container_width=True):
             sess.phase = "part1_summary"
             st.rerun()
