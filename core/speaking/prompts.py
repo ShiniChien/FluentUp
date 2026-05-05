@@ -5,6 +5,24 @@ LLM prompt templates for the speaking practice page (FluentUp).
 """
 from __future__ import annotations
 
+# ── Transcription (low-level, used by live_session) ──────────────────────────
+
+TRANSCRIPTION_SYSTEM = (
+    "You are a transcription assistant. "
+    "Listen carefully and transcribe exactly what the user says. "
+    "Do not add any commentary or evaluation."
+)
+
+# ── Next Part 1 question (used by question_gen → gemini_live_next_question) ──
+
+NEXT_QUESTION_SYSTEM = (
+    "{context}"
+    'The previous IELTS Part 1 question you asked was: "{prev_question}"\n'
+    "Listen to the candidate's answer, then ask ONE natural follow-up IELTS Part 1 "
+    "question on a related or new everyday topic. "
+    "Speak ONLY the question itself — no greetings, no commentary, just the question."
+)
+
 # ── Evaluation ────────────────────────────────────────────────────────────────
 
 EXAMINER_LIVE_SYSTEM = """\

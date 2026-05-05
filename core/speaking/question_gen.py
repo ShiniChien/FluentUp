@@ -3,19 +3,19 @@ from __future__ import annotations
 import json
 import random
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-import openai
-
+from core.openrouter import async_chat
 from core.speaking.prompts import (
     CUE_CARD_PROMPT,
+    NEXT_QUESTION_SYSTEM,
     PART3_QUESTION_PROMPT,
     PART3_RANDOM_QUESTION_PROMPT,
 )
 from core.models import CueCard
 from core.live_session import gemini_live_speak, gemini_live_next_question
 from core.speaking.question_bank import pick_opening_question
+from core.viet_words import seed_words as _seed_words_shared
 from core.config import (
     EXAMINER_ACCENTS,
     DEFAULT_ACCENT,
@@ -30,27 +30,8 @@ if TYPE_CHECKING:
     from core.models import UserProfile
 
 
-_VIET11K_PATH = Path(__file__).parent / "Viet11K.txt"
-_viet_words: list[str] | None = None
-
-
-def _load_viet_words() -> list[str]:
-    global _viet_words
-    if _viet_words is None:
-        try:
-            lines = _VIET11K_PATH.read_text(encoding="utf-8").splitlines()
-            _viet_words = [ln.strip() for ln in lines if ln.strip()]
-        except Exception:
-            _viet_words = []
-    return _viet_words
-
-
 def _seed_words(n: int = 2) -> list[str]:
-    """Pick n random Vietnamese words to seed topic generation."""
-    words = _load_viet_words()
-    if not words:
-        return []
-    return random.sample(words, min(n, len(words)))
+    return _seed_words_shared(n)
 
 
 def _strip_fences(text: str) -> str:
@@ -79,20 +60,17 @@ class QuestionGenerator:
 
         self._api_key    = api_key
         self._live_model = live_model
-
-        self._or_client = openai.AsyncOpenAI(
-            base_url=openrouter_base_url,
-            api_key=openrouter_api_key,
-        )
-        self._or_model = openrouter_model
+        self._or_base    = openrouter_base_url
+        self._or_key     = openrouter_api_key
+        self._or_model   = openrouter_model
 
     async def _chat(self, prompt: str) -> str:
-        resp = await self._or_client.chat.completions.create(
+        return await async_chat(
+            base_url=self._or_base,
+            api_key=self._or_key,
             model=self._or_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
+            prompt=prompt,
         )
-        return (resp.choices[0].message.content or "").strip()
 
     async def generate_part1_questions(self, n: int = 1, profile: "UserProfile | None" = None) -> list[str]:
         """Pick the opening Part 1 question from the local bank (no LLM call needed)."""
@@ -111,13 +89,20 @@ class QuestionGenerator:
         Returns (question_text, question_wav)."""
         accent_instruction = EXAMINER_ACCENTS.get(accent, EXAMINER_ACCENTS[DEFAULT_ACCENT])
         profile_ctx = profile.prompt_context() if profile else ""
+        context = ""
+        if accent_instruction.strip():
+            context += accent_instruction + "\n\n"
+        if profile_ctx.strip():
+            context += profile_ctx
+        system_prompt = NEXT_QUESTION_SYSTEM.format(
+            context=context,
+            prev_question=prev_question,
+        )
         return await gemini_live_next_question(
             api_key=self._api_key,
-            prev_question=prev_question,
+            system_prompt=system_prompt,
             answer_wav=answer_wav,
             model=self._live_model,
-            accent_instruction=accent_instruction,
-            profile_ctx=profile_ctx,
         )
 
     async def generate_cue_card(self, profile: "UserProfile | None" = None) -> CueCard:

@@ -23,11 +23,16 @@ import google.genai as genai
 from google.genai import types
 
 from core.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS
+from core.speaking.prompts import TRANSCRIPTION_SYSTEM
 
 CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000
 
 _MAX_RETRIES    = 4
 _RETRY_BASE_SEC = 1.5
+
+
+def _make_client(api_key: str) -> genai.Client:
+    return genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
 _RETRYABLE      = ("1011", "1012", "1013", "empty", "timeout", "connection", "internal")  # e.g. 100 ms of 16-bit PCM = 3200 bytes
 
 
@@ -140,10 +145,7 @@ async def _gemini_live_once_attempt(
 ) -> tuple[str, str, bytes]:
     pcm = wav_to_pcm16k(wav_bytes)
 
-    client = genai.Client(
-        api_key=api_key,
-        http_options={"api_version": "v1beta"},
-    )
+    client = _make_client(api_key)
 
     cfg_kwargs: dict = dict(
         # AUDIO is the native Live modality — avoids 1011 errors from TEXT forcing
@@ -229,11 +231,7 @@ async def gemini_transcribe_only(
     """
     transcript, _, _ = await gemini_live_once(
         api_key=api_key,
-        system_prompt=(
-            "You are a transcription assistant. "
-            "Listen carefully and transcribe exactly what the user says. "
-            "Do not add any commentary or evaluation."
-        ),
+        system_prompt=TRANSCRIPTION_SYSTEM,
         wav_bytes=wav_bytes,
         model=model,
     )
@@ -244,31 +242,15 @@ async def gemini_transcribe_only(
 
 async def gemini_live_next_question(
     api_key: str,
-    prev_question: str,
+    system_prompt: str,
     answer_wav: bytes,
     model: str = LIVE_MODEL,
-    accent_instruction: str = "",
-    profile_ctx: str = "",
 ) -> tuple[str, bytes]:
     """
-    Generate the next IELTS Part 1 question by sending the previous question (as
-    system context) and the candidate's audio answer to Gemini Live.
-
-    Returns (question_text, question_wav) where question_wav is a WAV file.
+    Generate the next IELTS Part 1 question by sending the candidate's audio answer
+    to Gemini Live with a pre-built system prompt.
+    Returns (question_text, question_wav).
     """
-    context = ""
-    if accent_instruction.strip():
-        context += accent_instruction + "\n\n"
-    if profile_ctx.strip():
-        context += profile_ctx
-    system_prompt = (
-        context
-        + f'The previous IELTS Part 1 question you asked was: "{prev_question}"\n'
-        "Listen to the candidate\'s answer, then ask ONE natural follow-up IELTS Part 1 "
-        "question on a related or new everyday topic. "
-        "Speak ONLY the question itself — no greetings, no commentary, just the question."
-    )
-
     _input_tr, output_tr, pcm = await gemini_live_once(
         api_key=api_key,
         system_prompt=system_prompt,
@@ -293,10 +275,7 @@ async def gemini_live_dialogue_turn(
     Returns (output_transcript, wav_bytes).
     The model improvises a spoken reply; transcript is captured from output_audio_transcription.
     """
-    client = genai.Client(
-        api_key=api_key,
-        http_options={"api_version": "v1beta"},
-    )
+    client = _make_client(api_key)
 
     cfg_kwargs: dict = dict(
         response_modalities=[types.Modality.AUDIO],
@@ -366,10 +345,7 @@ async def gemini_live_speak(
 
     Pass system_instruction to shape accent/persona (e.g. EXAMINER_ACCENTS["uk"]).
     """
-    client = genai.Client(
-        api_key=api_key,
-        http_options={"api_version": "v1beta"},
-    )
+    client = _make_client(api_key)
 
     cfg_kwargs: dict = dict(
         response_modalities=[types.Modality.AUDIO],

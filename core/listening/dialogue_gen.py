@@ -6,7 +6,8 @@ Each turn is generated as audio; output_audio_transcription is the ground-truth 
 """
 from __future__ import annotations
 
-from core.config import LIVE_MODEL, SPEAKER_PERSONA
+from core.config import LIVE_MODEL
+from core.listening.prompts import SPEAKER_PERSONA
 from core.live_session import gemini_live_dialogue_turn
 
 

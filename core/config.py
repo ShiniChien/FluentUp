@@ -40,6 +40,14 @@ SEED_WORDS_MAX = 3   # maximum Vietnamese seed words per cue card
 DEFAULT_VOICE  = "Kore"
 DEFAULT_ACCENT = "us"
 
+VOICES: list[str] = [
+    "Zephyr", "Charon", "Fenrir", "Orus", "Callirrhoe", "Enceladus",
+    "Umbriel", "Despina", "Algenib", "Laomedeia", "Alnilam", "Gacrux",
+    "Achird", "Vindemiatrix", "Sadaltager", "Puck", "Kore", "Leda",
+    "Aoede", "Autonoe", "Iapetus", "Algieba", "Erinome", "Rasalgethi",
+    "Achernar", "Schedar", "Pulcherrima", "Zubenelgenubi", "Sadachbia", "Sulafat",
+]
+
 EXAMINER_ACCENTS: dict[str, str] = {
     "us": (
         "You are a professional IELTS Speaking examiner with a clear, neutral American English accent. "
@@ -73,15 +81,9 @@ ACCENT_LABELS: dict[str, str] = {
     "au": "Australian",
 }
 
-# ── Listening dialogue speaker personas ───────────────────────────────────────
-
-SPEAKER_PERSONA = (
-    "You are Speaker {speaker} in a short, casual everyday English conversation about '{topic}'. "
-    "Keep your reply to 1-2 short sentences — speak the way people actually talk, not like a podcast or lecture. "
-    "Be natural, relaxed, and conversational. "
-    "Do NOT greet the other person unless it's the very first line of the conversation.\n"
-    "{accent_instruction}"
-)
-
 LISTENING_TURNS_MIN = 1
 LISTENING_TURNS_MAX = 30
+
+# ── EchoLab dialogue speaker colors ──────────────────────────────────────────
+
+SPEAKER_COLORS: dict[str, str] = {"A": "#1565C0", "B": "#6A1B9A"}

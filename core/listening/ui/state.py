@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import streamlit as st
 
-from .constants import TOPICS
-
 
 def init_state() -> None:
     defaults = {
@@ -11,7 +9,7 @@ def init_state() -> None:
         "echo_dialogue":  [],
         "echo_masked":    [],
         "echo_mode":      "fill_blank",
-        "echo_topic":     TOPICS[0],
+        "echo_topic":     "",
         "echo_voice_a":   "Kore",
         "echo_voice_b":   "Fenrir",
         "echo_accent_a":  "us",
@@ -19,6 +17,7 @@ def init_state() -> None:
         "echo_n_turns":   10,
         "echo_answers":   {},
         "echo_scores":    [],
+        "echo_q_type":    "ONE WORD ONLY",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
