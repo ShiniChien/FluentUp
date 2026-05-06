@@ -4,35 +4,33 @@ core/chat/session_manager.py
 Persistent bidirectional Gemini Live session for real-time audio chat.
 
 Threading model:
-  - WebRTC callback thread  : calls push_audio() and pop_output()
-  - Streamlit main thread   : calls get_messages(), is_ready, stop()
-  - Internal daemon thread  : runs its own asyncio loop with _send_loop + _recv_loop
+  - Streamlit main thread : calls send_turn_wav(), wait_turn_complete(), stop()
+  - Internal daemon thread: runs its own asyncio loop with _send_loop + _recv_loop
     running concurrently via asyncio.gather()
 
-VAD is energy-based: consecutive silent chunks trigger ActivityEnd; voice
-above threshold triggers ActivityStart.
+Push-to-talk flow:
+  1. main thread  → send_turn_wav(wav_bytes)   : enqueue ActivityStart + PCM + ActivityEnd
+  2. daemon thread → _send_loop sends to socket ; _recv_loop accumulates response
+  3. main thread  → wait_turn_complete()        : block until turn_complete, return result
 """
 from __future__ import annotations
 
 import asyncio
 import queue
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import google.genai as genai
 from google.genai import types
 
 from core.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS
+from core.live_session import wav_to_pcm16k, pcm_to_wav
 
 _CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000  # 3200 bytes = 100 ms at 16 kHz
 
 _ACTIVITY_START = b"__START__"
 _ACTIVITY_END   = b"__END__"
-
-# VAD tuning
-_ENERGY_THRESHOLD = 300   # RMS amplitude (0–32767)
-_SILENCE_FRAMES   = 8     # consecutive silent 100 ms chunks before ActivityEnd
 
 
 @dataclass
@@ -42,26 +40,31 @@ class ChatMessage:
 
 
 class GeminiLiveSession:
-    """Persistent Gemini Live session with bidirectional PCM streaming."""
+    """
+    Persistent Gemini Live WebSocket session.
+
+    One socket stays open for the whole conversation — Gemini maintains
+    internal state across turns without needing history injection.
+    """
 
     def __init__(self, api_key: str, model: str, system_prompt: str) -> None:
-        self._api_key      = api_key
-        self._model        = model
+        self._api_key       = api_key
+        self._model         = model
         self._system_prompt = system_prompt
 
-        # asyncio queue (created inside the loop thread before signalling ready)
+        # asyncio input queue (created inside loop thread before signalling ready)
         self._input_q: asyncio.Queue[bytes] | None = None
 
-        # Output PCM chunks (24 kHz mono int16); thread-safe
-        self._output_q: queue.Queue[bytes] = queue.Queue(maxsize=2000)
-
-        # Conversation transcript
+        # Conversation log
         self._messages: list[ChatMessage] = []
         self._msg_lock = threading.Lock()
 
-        # VAD state — only touched from push_audio (WebRTC callback thread)
-        self._speaking       = False
-        self._silence_count  = 0
+        # Per-turn result state (written by _recv_loop, read by wait_turn_complete)
+        self._turn_lock          = threading.Lock()
+        self._turn_complete      = threading.Event()
+        self._turn_user_text     = ""
+        self._turn_asst_text     = ""
+        self._turn_audio_chunks: list[bytes] = []
 
         # Lifecycle
         self._ready      = threading.Event()
@@ -93,40 +96,44 @@ class GeminiLiveSession:
     def error(self) -> str | None:
         return self._error
 
-    def push_audio(self, pcm_16k_mono: bytes) -> None:
+    def send_turn_wav(self, wav_bytes: bytes) -> None:
         """
-        Accept a PCM chunk (16 kHz, 16-bit mono).  Runs VAD internally and
-        enqueues ActivityStart / PCM / ActivityEnd signals as needed.
+        Convert WAV to PCM 16 kHz and enqueue as a complete turn on the
+        persistent socket (ActivityStart → PCM chunks → ActivityEnd).
         """
         if not self.is_ready or self._input_q is None:
-            return
+            raise RuntimeError("Session not ready")
 
-        arr = np.frombuffer(pcm_16k_mono, dtype=np.int16).astype(np.float32)
-        rms = float(np.sqrt(np.mean(arr ** 2))) if len(arr) else 0.0
+        pcm = wav_to_pcm16k(wav_bytes)
 
-        if rms > _ENERGY_THRESHOLD:
-            if not self._speaking:
-                self._speaking      = True
-                self._silence_count = 0
-                self._enqueue(_ACTIVITY_START)
-            self._silence_count = 0
-            self._enqueue(pcm_16k_mono)
-        else:
-            if self._speaking:
-                self._silence_count += 1
-                # Still send audio during leading silence (natural speech gaps)
-                self._enqueue(pcm_16k_mono)
-                if self._silence_count >= _SILENCE_FRAMES:
-                    self._speaking      = False
-                    self._silence_count = 0
-                    self._enqueue(_ACTIVITY_END)
+        # Reset turn state BEFORE enqueuing so recv_loop can't race ahead
+        with self._turn_lock:
+            self._turn_complete.clear()
+            self._turn_user_text    = ""
+            self._turn_asst_text    = ""
+            self._turn_audio_chunks = []
 
-    def pop_output(self) -> bytes | None:
-        """Return one PCM chunk (24 kHz mono int16) or None if nothing ready."""
-        try:
-            return self._output_q.get_nowait()
-        except queue.Empty:
-            return None
+        self._enqueue(_ACTIVITY_START)
+        for offset in range(0, len(pcm), _CHUNK_BYTES):
+            self._enqueue(pcm[offset : offset + _CHUNK_BYTES])
+        self._enqueue(_ACTIVITY_END)
+
+    def wait_turn_complete(self, timeout: float = 30.0) -> tuple[str, str, bytes]:
+        """
+        Block until Gemini signals turn_complete.
+        Returns (user_transcript, assistant_transcript, response_wav_bytes).
+        Raises TimeoutError if no response within *timeout* seconds.
+        """
+        if not self._turn_complete.wait(timeout=timeout):
+            raise TimeoutError("No response from Gemini within timeout")
+
+        with self._turn_lock:
+            user_tr  = self._turn_user_text
+            asst_tr  = self._turn_asst_text
+            wav = pcm_to_wav(b"".join(self._turn_audio_chunks), OUTPUT_RATE) \
+                  if self._turn_audio_chunks else b""
+
+        return user_tr.strip(), asst_tr.strip(), wav
 
     def get_messages(self) -> list[ChatMessage]:
         with self._msg_lock:
@@ -180,9 +187,9 @@ class GeminiLiveSession:
                 parts=[types.Part.from_text(text=self._system_prompt)]
             )
 
-        cfg = types.LiveConnectConfig(**cfg_kwargs)
-
-        async with client.aio.live.connect(model=self._model, config=cfg) as session:
+        async with client.aio.live.connect(
+            model=self._model, config=types.LiveConnectConfig(**cfg_kwargs)
+        ) as session:
             self._ready.set()
             await asyncio.gather(
                 self._send_loop(session),
@@ -209,13 +216,9 @@ class GeminiLiveSession:
                 )
 
     async def _recv_loop(self, session) -> None:
-        user_buf       = ""
-        assistant_buf  = ""
-
         async for response in session.receive():
             if self._stop_event.is_set():
                 break
-
             if getattr(response, "go_away", None) is not None:
                 break
 
@@ -225,29 +228,29 @@ class GeminiLiveSession:
 
             it = getattr(sc, "input_transcription", None)
             if it and getattr(it, "text", None):
-                user_buf += it.text
+                with self._turn_lock:
+                    self._turn_user_text += it.text
 
             ot = getattr(sc, "output_transcription", None)
             if ot and getattr(ot, "text", None):
-                assistant_buf += ot.text
+                with self._turn_lock:
+                    self._turn_asst_text += ot.text
 
             mt = getattr(sc, "model_turn", None)
             if mt:
                 for part in getattr(mt, "parts", []) or []:
                     inline = getattr(part, "inline_data", None)
                     if inline and getattr(inline, "data", None):
-                        try:
-                            self._output_q.put_nowait(inline.data)
-                        except queue.Full:
-                            pass
+                        with self._turn_lock:
+                            self._turn_audio_chunks.append(inline.data)
 
             if getattr(sc, "turn_complete", False):
+                with self._turn_lock:
+                    user_tr = self._turn_user_text.strip()
+                    asst_tr = self._turn_asst_text.strip()
                 with self._msg_lock:
-                    if user_buf.strip():
-                        self._messages.append(ChatMessage("user", user_buf.strip()))
-                    if assistant_buf.strip():
-                        self._messages.append(
-                            ChatMessage("assistant", assistant_buf.strip())
-                        )
-                user_buf      = ""
-                assistant_buf = ""
+                    if user_tr:
+                        self._messages.append(ChatMessage("user", user_tr))
+                    if asst_tr:
+                        self._messages.append(ChatMessage("assistant", asst_tr))
+                self._turn_complete.set()

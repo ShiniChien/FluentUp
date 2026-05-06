@@ -5,9 +5,7 @@ import streamlit as st
 
 from core.auth import is_logged_in
 from core.shared import load_secrets
-from core.async_utils import run_async
-from core.live_session import gemini_live_once, pcm_to_wav
-from core.config import OUTPUT_RATE
+from core.chat.session_manager import GeminiLiveSession
 
 _DEFAULT_SYSTEM = (
     "You are a friendly, natural English conversation partner. "
@@ -15,24 +13,31 @@ _DEFAULT_SYSTEM = (
     "Speak clearly at a natural conversational pace."
 )
 
-_MAX_HISTORY_TURNS = 10  # turns (user+assistant pairs) included in context
+
+# ── Session management ────────────────────────────────────────────────────────
+
+def _reset_session() -> None:
+    old: GeminiLiveSession | None = st.session_state.pop("chat_session", None)
+    if old is not None:
+        old.stop()
+    st.session_state.pop("chat_last_hash", None)
 
 
-def _build_system_prompt(base: str, messages: list[dict]) -> str:
-    """Prepend recent conversation history to the system prompt."""
-    if not messages:
-        return base
-    lines = []
-    for m in messages[-_MAX_HISTORY_TURNS * 2 :]:
-        role = "User" if m["role"] == "user" else "Assistant"
-        lines.append(f"{role}: {m['text']}")
-    history = "\n".join(lines)
-    return f"{base}\n\nConversation so far:\n{history}"
+def _ensure_session(api_key: str, model: str, system_prompt: str) -> GeminiLiveSession:
+    session: GeminiLiveSession | None = st.session_state.get("chat_session")
+    if session is None or not session.is_alive:
+        if session is not None:
+            session.stop()
+        session = GeminiLiveSession(api_key, model, system_prompt)
+        st.session_state["chat_session"] = session
+    return session
 
+
+# ── Main page ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
     st.title("Live Chat")
-    st.caption("Push-to-talk conversation with Gemini Live")
+    st.caption("Push-to-talk conversation · single persistent socket with Gemini Live")
 
     secrets = load_secrets()
     api_key = secrets["gemini_api_key"]
@@ -53,70 +58,78 @@ def main() -> None:
         )
 
     # ── Controls ──────────────────────────────────────────────────────────────
-    col_clear, _ = st.columns([2, 8])
+    col_clear, col_status = st.columns([2, 8])
     with col_clear:
-        if st.button("Clear chat", type="secondary"):
-            st.session_state["chat_messages"] = []
-            st.session_state.pop("chat_last_hash", None)
+        if st.button("New session", type="secondary"):
+            _reset_session()
             st.rerun()
 
+    # ── Session lifecycle ─────────────────────────────────────────────────────
+    session = _ensure_session(api_key, model, system_prompt)
+
+    if session.error:
+        with col_status:
+            st.error(f"Connection error: {session.error}")
+        if st.button("Retry"):
+            _reset_session()
+            st.rerun()
+        return
+
+    if not session.is_ready:
+        with col_status:
+            with st.spinner("Connecting to Gemini Live…"):
+                ready = session.wait_ready(timeout=10.0)
+        if not ready:
+            st.error("Connection timed out. Check your API key and network.")
+            _reset_session()
+            return
+        st.rerun()
+
+    with col_status:
+        st.success("Connected — 1 socket, Gemini remembers the full conversation")
+
     # ── Transcript ────────────────────────────────────────────────────────────
-    messages: list[dict] = st.session_state.setdefault("chat_messages", [])
+    messages = session.get_messages()
 
     if not messages:
         st.info("Record your first message below to start the conversation.")
     else:
         for i, msg in enumerate(messages):
-            with st.chat_message(msg["role"]):
-                st.write(msg["text"])
-                if msg.get("audio"):
-                    # Autoplay only the very last assistant message
+            with st.chat_message(msg.role):
+                st.write(msg.text)
+                wav = st.session_state.get(f"chat_wav_{i}")
+                if wav:
                     is_last = i == len(messages) - 1
-                    autoplay = is_last and st.session_state.get("chat_autoplay_last", False)
-                    st.audio(msg["audio"], format="audio/wav", autoplay=autoplay)
-        # Reset autoplay flag after first render that triggered it
-        st.session_state["chat_autoplay_last"] = False
+                    autoplay = is_last and st.session_state.pop("chat_autoplay_last", False)
+                    st.audio(wav, format="audio/wav", autoplay=autoplay)
 
     # ── Audio input ───────────────────────────────────────────────────────────
     st.divider()
     audio_file = st.audio_input("Your turn — record your message", key="chat_audio_input")
 
     if audio_file is not None:
-        wav_bytes = audio_file.read()
+        wav_bytes  = audio_file.read()
         audio_hash = hash(wav_bytes)
 
-        # Deduplicate: only process if this is a new recording
         if st.session_state.get("chat_last_hash") != audio_hash:
             st.session_state["chat_last_hash"] = audio_hash
 
-            effective_prompt = _build_system_prompt(system_prompt, messages)
-
             with st.spinner("Gemini is responding…"):
                 try:
-                    user_tr, assistant_tr, pcm = run_async(
-                        gemini_live_once(
-                            api_key=api_key,
-                            system_prompt=effective_prompt,
-                            wav_bytes=wav_bytes,
-                            model=model,
-                        )
-                    )
+                    session.send_turn_wav(wav_bytes)
+                    user_tr, asst_tr, response_wav = session.wait_turn_complete(timeout=30.0)
                 except Exception as exc:
                     st.error(f"Error: {exc}")
                     return
 
-            wav_response = pcm_to_wav(pcm, OUTPUT_RATE) if pcm else b""
+            # Store audio keyed by message index (get_messages returns after turn_complete)
+            msgs_after = session.get_messages()
+            n = len(msgs_after)
+            # user message is at n-2, assistant at n-1
+            if n >= 2:
+                st.session_state[f"chat_wav_{n - 2}"] = wav_bytes       # user audio
+                st.session_state[f"chat_wav_{n - 1}"] = response_wav    # assistant audio
 
-            messages.append({
-                "role": "user",
-                "text": user_tr or "(no transcript)",
-                "audio": None,
-            })
-            messages.append({
-                "role": "assistant",
-                "text": assistant_tr or "",
-                "audio": wav_response if wav_response else None,
-            })
             st.session_state["chat_autoplay_last"] = True
             st.rerun()
 
