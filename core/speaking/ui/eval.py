@@ -16,6 +16,7 @@ def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
     if evaluator is None:
         return
     language: str = st.session_state.get("feedback_language", "vi")
+    accent: str = st.session_state.get("examiner_accent", "us")
     turn_evals: dict = st.session_state.setdefault("turn_evals", {})
     result: dict = {"_started": time.time()}
     turn_evals[turn_idx] = result
@@ -27,6 +28,7 @@ def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
                 question=turn.question,
                 part=part,
                 language=language,
+                accent=accent,
             ))
             with _RESULT_LOCK:
                 result["done"] = eval_result
@@ -75,6 +77,7 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
     if evaluator is None:
         return
     language: str = st.session_state.get("feedback_language", "vi")
+    accent: str = st.session_state.get("examiner_accent", "us")
 
     result: dict = {"_started": time.time()}
     st.session_state["eval_result"] = result
@@ -87,6 +90,7 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
                 question=turn.question,
                 part=part,
                 language=language,
+                accent=accent,
             ))
             with _RESULT_LOCK:
                 result["done"] = eval_result

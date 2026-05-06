@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import streamlit as st
 
-from core.auth import current_user
 from core.speaking.session import ExamSession
 
 

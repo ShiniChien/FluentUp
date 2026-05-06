@@ -70,24 +70,38 @@ Speak directly to the candidate throughout. \
 Do NOT give band scores or numbers. Do NOT use bullet points.\
 """
 
-_LANGUAGE_INSTRUCTIONS: dict[str, str] = {
-    "en": "",
-    "vi": (
+def get_examiner_prompt(
+    question: str,
+    part: int,
+    language: str = "vi",
+    accent_instruction: str = "",
+) -> str:
+    if language == "en":
+        # For English feedback: prepend accent persona so the examiner speaks with the right accent
+        accent_prefix = (accent_instruction + "\n\n") if accent_instruction else ""
+        return accent_prefix + _EXAMINER_LIVE_BODY.format(question=question, part=part)
+
+    # For Vietnamese feedback: examiner speaks Vietnamese with Northern Vietnamese accent,
+    # but the model answer example must be in English with the chosen accent.
+    accent_example_note = ""
+    if accent_instruction:
+        accent_example_note = (
+            f"- When speaking the English model answer example, adopt this accent and delivery: "
+            f"{accent_instruction}\n"
+        )
+
+    vi_instruction = (
         "\nDeliver your entire feedback in Vietnamese (tiếng Việt), "
-        "speaking naturally as a bilingual IELTS examiner. "
+        "speaking naturally as a bilingual IELTS examiner with a Northern Vietnamese (Hà Nội) accent. "
         "IMPORTANT rules for Vietnamese delivery:\n"
         "- Pronounce all English grammar/vocabulary terms (e.g. 'phrasal verb', 'collocation', "
         "'discourse marker', 'intonation', 'fluency', 'coherence') in clear English when you say them.\n"
         "- The model answer example MUST be spoken entirely in English.\n"
         "- Introduce the example in Vietnamese (e.g. 'Đây là một câu trả lời mẫu:'), "
         "then switch to English for the example itself.\n"
-    ),
-}
-
-
-def get_examiner_prompt(question: str, part: int, language: str = "vi") -> str:
-    lang_instruction = _LANGUAGE_INSTRUCTIONS.get(language, _LANGUAGE_INSTRUCTIONS["vi"])
-    return lang_instruction + _EXAMINER_LIVE_BODY.format(question=question, part=part)
+        + accent_example_note
+    )
+    return vi_instruction + _EXAMINER_LIVE_BODY.format(question=question, part=part)
 
 
 # Keep for backwards compatibility

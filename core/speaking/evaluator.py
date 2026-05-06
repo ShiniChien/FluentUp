@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 
-from core.config import LIVE_MODEL
+from core.config import ENGLISH_ACCENTS, LIVE_MODEL
 from core.live_session import gemini_live_once, pcm_to_wav, OUTPUT_RATE
 from core.models import CriterionFeedback, EvaluationResult
 from core.speaking.prompts import get_examiner_prompt
@@ -31,8 +31,15 @@ class LiveEvaluationPipeline:
         question:    str,
         part:        int = 1,
         language:    str = "vi",
+        accent:      str = "us",
     ) -> tuple[EvaluationResult, str]:
-        system_prompt = get_examiner_prompt(question=question, part=part, language=language)
+        accent_instruction = ENGLISH_ACCENTS.get(accent, ENGLISH_ACCENTS["us"])
+        system_prompt = get_examiner_prompt(
+            question=question,
+            part=part,
+            language=language,
+            accent_instruction=accent_instruction,
+        )
         try:
             input_tr, output_tr, audio_pcm = await asyncio.wait_for(
                 gemini_live_once(
