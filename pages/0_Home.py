@@ -261,7 +261,7 @@ def _render_app() -> None:
                 logout()
                 st.rerun()
 
-    _, col_speaking, col_gap, col_listening, _ = st.columns([1, 3, 0.5, 3, 1])
+    _, col_speaking, col_gap, col_listening, col_gap2, col_chat, _ = st.columns([1, 3, 0.5, 3, 0.5, 3, 1])
 
     with col_speaking:
         st.markdown(
@@ -286,6 +286,18 @@ def _render_app() -> None:
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
         if st.button("Vào Listening →", type="primary", use_container_width=True):
             st.switch_page("pages/2_Listening.py")
+
+    with col_chat:
+        st.markdown(
+            '<div class="fu-card"><div class="icon">💬</div>'
+            '<h3>Live Chat</h3>'
+            '<p>Trò chuyện audio trực tiếp<br>với Gemini Live.</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button("Vào Live Chat →", type="primary", use_container_width=True):
+            st.switch_page("pages/3_Chat.py")
 
 
 # ── Router ────────────────────────────────────────────────────────────────────

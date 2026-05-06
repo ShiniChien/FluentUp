@@ -5,6 +5,7 @@ import streamlit as st
 
 from core.auth import is_logged_in
 from core.shared import load_secrets
+from core.config import VOICES
 from core.chat.session_manager import GeminiLiveSession
 
 _DEFAULT_SYSTEM = (
@@ -23,12 +24,12 @@ def _reset_session() -> None:
     st.session_state.pop("chat_last_hash", None)
 
 
-def _ensure_session(api_key: str, model: str, system_prompt: str) -> GeminiLiveSession:
+def _ensure_session(api_key: str, model: str, system_prompt: str, voice: str) -> GeminiLiveSession:
     session: GeminiLiveSession | None = st.session_state.get("chat_session")
     if session is None or not session.is_alive:
         if session is not None:
             session.stop()
-        session = GeminiLiveSession(api_key, model, system_prompt)
+        session = GeminiLiveSession(api_key, model, system_prompt, voice)
         st.session_state["chat_session"] = session
     return session
 
@@ -46,6 +47,18 @@ def main() -> None:
     if not api_key:
         st.error("GEMINI_API_KEY not configured in secrets.toml.")
         return
+
+    # ── Sidebar: voice selector ───────────────────────────────────────────────
+    prev_voice = st.session_state.get("chat_voice", "Kore")
+    voice: str = st.sidebar.selectbox(
+        "Gemini voice",
+        options=VOICES,
+        index=VOICES.index(prev_voice) if prev_voice in VOICES else 0,
+        key="chat_voice",
+    )
+    if voice != prev_voice:
+        _reset_session()
+        st.rerun()
 
     # ── System prompt ─────────────────────────────────────────────────────────
     with st.expander("System prompt", expanded=False):
@@ -65,7 +78,7 @@ def main() -> None:
             st.rerun()
 
     # ── Session lifecycle ─────────────────────────────────────────────────────
-    session = _ensure_session(api_key, model, system_prompt)
+    session = _ensure_session(api_key, model, system_prompt, voice)
 
     if session.error:
         with col_status:

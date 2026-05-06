@@ -47,10 +47,11 @@ class GeminiLiveSession:
     internal state across turns without needing history injection.
     """
 
-    def __init__(self, api_key: str, model: str, system_prompt: str) -> None:
+    def __init__(self, api_key: str, model: str, system_prompt: str, voice: str = "Kore") -> None:
         self._api_key       = api_key
         self._model         = model
         self._system_prompt = system_prompt
+        self._voice         = voice
 
         # asyncio input queue (created inside loop thread before signalling ready)
         self._input_q: asyncio.Queue[bytes] | None = None
@@ -173,6 +174,11 @@ class GeminiLiveSession:
 
         cfg_kwargs: dict = dict(
             response_modalities=[types.Modality.AUDIO],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=self._voice)
+                )
+            ),
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             realtime_input_config=types.RealtimeInputConfig(
@@ -216,41 +222,44 @@ class GeminiLiveSession:
                 )
 
     async def _recv_loop(self, session) -> None:
-        async for response in session.receive():
-            if self._stop_event.is_set():
-                break
-            if getattr(response, "go_away", None) is not None:
-                break
+        # session.receive() yields messages for ONE turn then breaks.
+        # Loop to restart it for every subsequent turn.
+        while not self._stop_event.is_set():
+            async for response in session.receive():
+                if self._stop_event.is_set():
+                    return
+                if getattr(response, "go_away", None) is not None:
+                    return
 
-            sc = getattr(response, "server_content", None)
-            if sc is None:
-                continue
+                sc = getattr(response, "server_content", None)
+                if sc is None:
+                    continue
 
-            it = getattr(sc, "input_transcription", None)
-            if it and getattr(it, "text", None):
-                with self._turn_lock:
-                    self._turn_user_text += it.text
+                it = getattr(sc, "input_transcription", None)
+                if it and getattr(it, "text", None):
+                    with self._turn_lock:
+                        self._turn_user_text += it.text
 
-            ot = getattr(sc, "output_transcription", None)
-            if ot and getattr(ot, "text", None):
-                with self._turn_lock:
-                    self._turn_asst_text += ot.text
+                ot = getattr(sc, "output_transcription", None)
+                if ot and getattr(ot, "text", None):
+                    with self._turn_lock:
+                        self._turn_asst_text += ot.text
 
-            mt = getattr(sc, "model_turn", None)
-            if mt:
-                for part in getattr(mt, "parts", []) or []:
-                    inline = getattr(part, "inline_data", None)
-                    if inline and getattr(inline, "data", None):
-                        with self._turn_lock:
-                            self._turn_audio_chunks.append(inline.data)
+                mt = getattr(sc, "model_turn", None)
+                if mt:
+                    for part in getattr(mt, "parts", []) or []:
+                        inline = getattr(part, "inline_data", None)
+                        if inline and getattr(inline, "data", None):
+                            with self._turn_lock:
+                                self._turn_audio_chunks.append(inline.data)
 
-            if getattr(sc, "turn_complete", False):
-                with self._turn_lock:
-                    user_tr = self._turn_user_text.strip()
-                    asst_tr = self._turn_asst_text.strip()
-                with self._msg_lock:
-                    if user_tr:
-                        self._messages.append(ChatMessage("user", user_tr))
-                    if asst_tr:
-                        self._messages.append(ChatMessage("assistant", asst_tr))
-                self._turn_complete.set()
+                if getattr(sc, "turn_complete", False):
+                    with self._turn_lock:
+                        user_tr = self._turn_user_text.strip()
+                        asst_tr = self._turn_asst_text.strip()
+                    with self._msg_lock:
+                        if user_tr:
+                            self._messages.append(ChatMessage("user", user_tr))
+                        if asst_tr:
+                            self._messages.append(ChatMessage("assistant", asst_tr))
+                    self._turn_complete.set()
