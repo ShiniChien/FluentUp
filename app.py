@@ -11,6 +11,7 @@ Pages:
 """
 import streamlit as st
 
+from core.async_utils import run_async
 from core.shared import load_secrets, get_store
 from core.vocab_sidebar import render_vocab_sidebar
 
@@ -34,6 +35,10 @@ pg = st.navigation(
 
 _secrets = load_secrets()
 _store   = get_store(_secrets)
+if _store and "vocab_indexes_ensured" not in st.session_state:
+    run_async(_store.ensure_indexes())
+    st.session_state["vocab_indexes_ensured"] = True
+
 render_vocab_sidebar(_store)
 
 pg.run()

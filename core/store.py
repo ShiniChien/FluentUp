@@ -46,6 +46,9 @@ class FluentUpStore:
         self._users = db["users"]
         self._part2_attempts = db["speaking_part2"]
 
+    async def ensure_indexes(self) -> None:
+        await self._vocabulary.create_index("user_id", background=True)
+
     async def ping(self) -> bool:
         try:
             await self._client.admin.command("ping")
@@ -68,10 +71,24 @@ class FluentUpStore:
         return str(result.inserted_id)
 
     async def get_vocab(
-        self, user_id: str = "default", limit: int = 200
+        self, user_id: str = "default", limit: int = 20
     ) -> list[dict]:
         cursor = self._vocabulary.find(
             {"user_id": user_id},
+            sort=[("created_at", -1)],
+            limit=limit,
+        )
+        docs = await cursor.to_list(length=limit)
+        for d in docs:
+            d["_id"] = str(d["_id"])
+        return docs
+
+    async def search_vocab(
+        self, user_id: str, query: str, limit: int = 20
+    ) -> list[dict]:
+        regex = {"$regex": query, "$options": "i"}
+        cursor = self._vocabulary.find(
+            {"user_id": user_id, "$or": [{"word": regex}, {"notes": regex}]},
             sort=[("created_at", -1)],
             limit=limit,
         )
