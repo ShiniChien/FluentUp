@@ -11,6 +11,9 @@ Pages:
 """
 import streamlit as st
 
+from core.shared import load_secrets, get_store
+from core.vocab_sidebar import render_vocab_sidebar
+
 st.set_page_config(
     page_title="FluentUp",
     page_icon="🎯",
@@ -28,4 +31,9 @@ pg = st.navigation(
         ],
     }
 )
+
+_secrets = load_secrets()
+_store   = get_store(_secrets)
+render_vocab_sidebar(_store)
+
 pg.run()

@@ -13,7 +13,7 @@ def main() -> None:
     secrets = load_secrets()
     store   = get_store(secrets)
 
-    render_sidebar_dict(store)
+    render_sidebar_dict()
 
     phase = st.session_state["echo_phase"]
 
