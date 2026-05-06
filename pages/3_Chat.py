@@ -1,23 +1,13 @@
-"""pages/3_Chat.py — Real-time audio-to-audio conversation with Gemini Live."""
+"""pages/3_Chat.py — Audio-to-audio conversation with Gemini Live (push-to-talk)."""
 from __future__ import annotations
 
-import threading
-from typing import Callable
-
-import av
-import numpy as np
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
-from streamlit_webrtc import WebRtcMode, RTCConfiguration, webrtc_streamer
 
 from core.auth import is_logged_in
 from core.shared import load_secrets
-from core.config import OUTPUT_RATE, INPUT_RATE
-from core.chat.session_manager import GeminiLiveSession
-
-_RTC_CONFIG = RTCConfiguration(
-    iceServers=[{"urls": ["stun:stun.l.google.com:19302"]}]
-)
+from core.async_utils import run_async
+from core.live_session import gemini_live_once, pcm_to_wav
+from core.config import OUTPUT_RATE
 
 _DEFAULT_SYSTEM = (
     "You are a friendly, natural English conversation partner. "
@@ -25,111 +15,24 @@ _DEFAULT_SYSTEM = (
     "Speak clearly at a natural conversational pace."
 )
 
-
-# ── Audio callback factory ────────────────────────────────────────────────────
-
-def _make_audio_callback(session: GeminiLiveSession) -> Callable:
-    """
-    Returns a stateful audio_frame_callback closure.
-
-    Input path : av.AudioFrame (browser mic) → resample to 16 kHz mono PCM
-                 → session.push_audio()
-    Output path: session.pop_output() → PCM 24 kHz → resample to input sample
-                 rate → av.AudioFrame (browser speakers)
-    """
-    out_buffer = bytearray()
-    buf_lock   = threading.Lock()
-
-    def callback(frame: av.AudioFrame) -> av.AudioFrame:
-        nonlocal out_buffer
-
-        # ── Input: mic → PCM 16 kHz mono ────────────────────────────────────
-        arr = frame.to_ndarray()  # (channels, samples)
-
-        if frame.format.name == "fltp":
-            mono_f = arr.mean(axis=0) if arr.shape[0] > 1 else arr[0]
-            mono_i = (np.clip(mono_f, -1.0, 1.0) * 32_767).astype(np.int16)
-        else:
-            mono_i = (arr.mean(axis=0) if arr.shape[0] > 1 else arr[0]).astype(
-                np.int16
-            )
-
-        if frame.sample_rate != INPUT_RATE:
-            n_out = max(1, round(len(mono_i) * INPUT_RATE / frame.sample_rate))
-            mono_i = np.interp(
-                np.linspace(0, len(mono_i) - 1, n_out),
-                np.arange(len(mono_i)),
-                mono_i.astype(np.float32),
-            ).astype(np.int16)
-
-        session.push_audio(mono_i.tobytes())
-
-        # ── Output: drain Gemini PCM → browser frame ─────────────────────────
-        with buf_lock:
-            while True:
-                chunk = session.pop_output()
-                if chunk is None:
-                    break
-                out_buffer.extend(chunk)
-
-            # How many 24 kHz samples fill this frame's duration?
-            frame_dur     = frame.samples / frame.sample_rate
-            n_out_samples = int(frame_dur * OUTPUT_RATE)
-            n_out_bytes   = n_out_samples * 2  # int16
-
-            if len(out_buffer) >= n_out_bytes:
-                pcm_out = bytes(out_buffer[:n_out_bytes])
-                del out_buffer[:n_out_bytes]
-            else:
-                pcm_out = bytes(out_buffer) + b"\x00" * (n_out_bytes - len(out_buffer))
-                out_buffer.clear()
-
-        out_24k = np.frombuffer(pcm_out, dtype=np.int16).astype(np.float32)
-
-        # Resample 24 kHz → frame.sample_rate for WebRTC compatibility
-        if frame.sample_rate != OUTPUT_RATE:
-            n_resampled = max(1, round(len(out_24k) * frame.sample_rate / OUTPUT_RATE))
-            out_24k = np.interp(
-                np.linspace(0, len(out_24k) - 1, n_resampled),
-                np.arange(len(out_24k)),
-                out_24k,
-            )
-
-        out_arr   = out_24k.astype(np.int16).reshape(1, -1)
-        out_frame = av.AudioFrame.from_ndarray(out_arr, format="s16", layout="mono")
-        out_frame.sample_rate = frame.sample_rate
-        return out_frame
-
-    return callback
+_MAX_HISTORY_TURNS = 10  # turns (user+assistant pairs) included in context
 
 
-# ── Session management ────────────────────────────────────────────────────────
+def _build_system_prompt(base: str, messages: list[dict]) -> str:
+    """Prepend recent conversation history to the system prompt."""
+    if not messages:
+        return base
+    lines = []
+    for m in messages[-_MAX_HISTORY_TURNS * 2 :]:
+        role = "User" if m["role"] == "user" else "Assistant"
+        lines.append(f"{role}: {m['text']}")
+    history = "\n".join(lines)
+    return f"{base}\n\nConversation so far:\n{history}"
 
-def _reset_session() -> None:
-    old: GeminiLiveSession | None = st.session_state.pop("chat_session", None)
-    if old is not None:
-        old.stop()
-    st.session_state.pop("chat_callback", None)
-    st.session_state["chat_session_id"] = (
-        st.session_state.get("chat_session_id", 0) + 1
-    )
-
-
-def _ensure_session(api_key: str, model: str, system_prompt: str) -> GeminiLiveSession:
-    session: GeminiLiveSession | None = st.session_state.get("chat_session")
-    if session is None or not session.is_alive:
-        if session is not None:
-            session.stop()
-        session = GeminiLiveSession(api_key, model, system_prompt)
-        st.session_state["chat_session"] = session
-    return session
-
-
-# ── Main page ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
     st.title("Live Chat")
-    st.caption("Real-time audio conversation with Gemini Live")
+    st.caption("Push-to-talk conversation with Gemini Live")
 
     secrets = load_secrets()
     api_key = secrets["gemini_api_key"]
@@ -142,7 +45,7 @@ def main() -> None:
     # ── System prompt ─────────────────────────────────────────────────────────
     with st.expander("System prompt", expanded=False):
         system_prompt: str = st.text_area(
-            "system_prompt_area",
+            "sp",
             value=st.session_state.get("chat_system_prompt", _DEFAULT_SYSTEM),
             height=120,
             label_visibility="collapsed",
@@ -150,66 +53,72 @@ def main() -> None:
         )
 
     # ── Controls ──────────────────────────────────────────────────────────────
-    col_btn, col_status = st.columns([2, 8])
-    with col_btn:
-        if st.button("New session", type="secondary"):
-            _reset_session()
+    col_clear, _ = st.columns([2, 8])
+    with col_clear:
+        if st.button("Clear chat", type="secondary"):
+            st.session_state["chat_messages"] = []
+            st.session_state.pop("chat_last_hash", None)
             st.rerun()
-
-    # ── Session lifecycle ─────────────────────────────────────────────────────
-    session = _ensure_session(api_key, model, system_prompt)
-
-    if session.error:
-        with col_status:
-            st.error(f"Connection error: {session.error}")
-        if st.button("Retry"):
-            _reset_session()
-            st.rerun()
-        return
-
-    if not session.is_ready:
-        with col_status:
-            with st.spinner("Connecting to Gemini Live…"):
-                ready = session.wait_ready(timeout=10.0)
-        if not ready:
-            st.error("Connection timed out. Check your API key and network.")
-            _reset_session()
-            return
-        st.rerun()
-
-    with col_status:
-        st.success("Connected — press **Start** below, then speak")
-
-    # ── WebRTC streamer ───────────────────────────────────────────────────────
-    # Cache the callback so it is not recreated on every rerun (the closure
-    # holds the output PCM buffer; recreating it would lose buffered audio).
-    session_id = st.session_state.get("chat_session_id", 0)
-    if "chat_callback" not in st.session_state:
-        st.session_state["chat_callback"] = _make_audio_callback(session)
-
-    webrtc_streamer(
-        key=f"live-chat-{session_id}",
-        mode=WebRtcMode.SENDRECV,
-        rtc_configuration=_RTC_CONFIG,
-        audio_frame_callback=st.session_state["chat_callback"],
-        media_stream_constraints={"audio": True, "video": False},
-        async_processing=True,
-    )
 
     # ── Transcript ────────────────────────────────────────────────────────────
-    st.divider()
-    st.subheader("Transcript")
+    messages: list[dict] = st.session_state.setdefault("chat_messages", [])
 
-    messages = session.get_messages()
     if not messages:
-        st.caption("Your conversation will appear here once you start speaking.")
+        st.info("Record your first message below to start the conversation.")
     else:
-        for msg in messages:
-            with st.chat_message(msg.role):
-                st.write(msg.text)
+        for i, msg in enumerate(messages):
+            with st.chat_message(msg["role"]):
+                st.write(msg["text"])
+                if msg.get("audio"):
+                    # Autoplay only the very last assistant message
+                    is_last = i == len(messages) - 1
+                    autoplay = is_last and st.session_state.get("chat_autoplay_last", False)
+                    st.audio(msg["audio"], format="audio/wav", autoplay=autoplay)
+        # Reset autoplay flag after first render that triggered it
+        st.session_state["chat_autoplay_last"] = False
 
-    # Refresh transcript every 1.5 s while the page is open
-    st_autorefresh(interval=1500, key="chat_autorefresh")
+    # ── Audio input ───────────────────────────────────────────────────────────
+    st.divider()
+    audio_file = st.audio_input("Your turn — record your message", key="chat_audio_input")
+
+    if audio_file is not None:
+        wav_bytes = audio_file.read()
+        audio_hash = hash(wav_bytes)
+
+        # Deduplicate: only process if this is a new recording
+        if st.session_state.get("chat_last_hash") != audio_hash:
+            st.session_state["chat_last_hash"] = audio_hash
+
+            effective_prompt = _build_system_prompt(system_prompt, messages)
+
+            with st.spinner("Gemini is responding…"):
+                try:
+                    user_tr, assistant_tr, pcm = run_async(
+                        gemini_live_once(
+                            api_key=api_key,
+                            system_prompt=effective_prompt,
+                            wav_bytes=wav_bytes,
+                            model=model,
+                        )
+                    )
+                except Exception as exc:
+                    st.error(f"Error: {exc}")
+                    return
+
+            wav_response = pcm_to_wav(pcm, OUTPUT_RATE) if pcm else b""
+
+            messages.append({
+                "role": "user",
+                "text": user_tr or "(no transcript)",
+                "audio": None,
+            })
+            messages.append({
+                "role": "assistant",
+                "text": assistant_tr or "",
+                "audio": wav_response if wav_response else None,
+            })
+            st.session_state["chat_autoplay_last"] = True
+            st.rerun()
 
 
 if not is_logged_in():
