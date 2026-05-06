@@ -3,9 +3,9 @@ from __future__ import annotations
 import streamlit as st
 
 from core.shared import load_secrets, get_store
-from .state import init_state
-from .sidebar import render_sidebar_dict
-from .render import render_idle, render_generating, render_submitted
+from core.listening.ui.state import init_state
+from core.listening.ui.sidebar import render_sidebar_dict
+from core.listening.ui.render import render_idle, render_generating, render_submitted
 
 
 def main() -> None:

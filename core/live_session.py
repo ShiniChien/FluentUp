@@ -23,9 +23,8 @@ import google.genai as genai
 from google.genai import types
 
 from core.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS
-from core.speaking.prompts import TRANSCRIPTION_SYSTEM
 
-CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000
+CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000  # *2 = bytes per 16-bit sample; e.g. 100 ms → 3200 bytes
 
 _MAX_RETRIES    = 4
 _RETRY_BASE_SEC = 1.5
@@ -33,7 +32,7 @@ _RETRY_BASE_SEC = 1.5
 
 def _make_client(api_key: str) -> genai.Client:
     return genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
-_RETRYABLE      = ("1011", "1012", "1013", "empty", "timeout", "connection", "internal")  # e.g. 100 ms of 16-bit PCM = 3200 bytes
+_RETRYABLE = ("1011", "1012", "1013", "empty", "timeout", "connection", "internal")
 
 
 # ── WAV → PCM 16 kHz mono ─────────────────────────────────────────────────────
@@ -185,32 +184,32 @@ async def _gemini_live_once_attempt(
             if getattr(response, "go_away", None) is not None:
                 break
 
-            sc = getattr(response, "server_content", None)
-            if sc is None:
+            server_content = getattr(response, "server_content", None)
+            if server_content is None:
                 continue
 
             # User's speech → input_audio_transcription
-            it = getattr(sc, "input_transcription", None)
-            if it:
-                t = getattr(it, "text", None)
+            input_transcription = getattr(server_content, "input_transcription", None)
+            if input_transcription:
+                t = getattr(input_transcription, "text", None)
                 if t:
                     input_transcript += t
 
             # Model's spoken reply → output_audio_transcription + audio PCM
-            ot = getattr(sc, "output_transcription", None)
-            if ot:
-                t = getattr(ot, "text", None)
+            output_transcription = getattr(server_content, "output_transcription", None)
+            if output_transcription:
+                t = getattr(output_transcription, "text", None)
                 if t:
                     output_transcript += t
 
-            mt = getattr(sc, "model_turn", None)
-            if mt:
-                for part in getattr(mt, "parts", []) or []:
+            model_turn = getattr(server_content, "model_turn", None)
+            if model_turn:
+                for part in getattr(model_turn, "parts", []) or []:
                     inline = getattr(part, "inline_data", None)
                     if inline and getattr(inline, "data", None):
                         audio_chunks.append(inline.data)
 
-            if getattr(sc, "turn_complete", False):
+            if getattr(server_content, "turn_complete", False):
                 break
 
     return (
@@ -218,24 +217,6 @@ async def _gemini_live_once_attempt(
         output_transcript.strip(),
         b"".join(audio_chunks),
     )
-
-
-async def gemini_transcribe_only(
-    api_key:   str,
-    wav_bytes: bytes,
-    model:     str = LIVE_MODEL,
-) -> str:
-    """
-    Send WAV to Gemini Live and return only the input_audio_transcription.
-    No evaluation, no audio response — used for profile setup Q&A.
-    """
-    transcript, _, _ = await gemini_live_once(
-        api_key=api_key,
-        system_prompt=TRANSCRIPTION_SYSTEM,
-        wav_bytes=wav_bytes,
-        model=model,
-    )
-    return transcript
 
 
 # ── Next question generation via Gemini Live ─────────────────────────────────
@@ -307,22 +288,22 @@ async def gemini_live_dialogue_turn(
             if getattr(response, "go_away", None) is not None:
                 break
 
-            sc = getattr(response, "server_content", None)
-            if sc is not None:
-                ot = getattr(sc, "output_transcription", None)
-                if ot:
-                    t = getattr(ot, "text", None)
+            server_content = getattr(response, "server_content", None)
+            if server_content is not None:
+                output_transcription = getattr(server_content, "output_transcription", None)
+                if output_transcription:
+                    t = getattr(output_transcription, "text", None)
                     if t:
                         output_transcript += t
 
-                mt = getattr(sc, "model_turn", None)
-                if mt:
-                    for part in getattr(mt, "parts", []) or []:
+                model_turn = getattr(server_content, "model_turn", None)
+                if model_turn:
+                    for part in getattr(model_turn, "parts", []) or []:
                         inline = getattr(part, "inline_data", None)
                         if inline and getattr(inline, "data", None):
                             pcm_chunks.append(inline.data)
 
-                if getattr(sc, "turn_complete", False):
+                if getattr(server_content, "turn_complete", False):
                     break
 
             if getattr(response, "turn_complete", False):

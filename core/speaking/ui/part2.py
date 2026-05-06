@@ -7,9 +7,10 @@ import streamlit as st
 from core.async_utils import run_async
 from core.models import Turn
 from core.speaking.question_gen import QuestionGenerator
+from core.speaking.config import MIN_AUDIO_BYTES, SPEAK_WARN_SECONDS, SPEAK_ALERT_SECONDS
 from core.speaking.session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
-from .eval import render_evaluation, render_streaming_eval
-from .helpers import clear_streaming_state
+from core.speaking.ui.eval import render_evaluation, render_streaming_eval
+from core.speaking.ui.helpers import clear_streaming_state
 
 
 def render_part2_idle() -> None:
@@ -108,10 +109,10 @@ def _speak_countdown_fragment():
     mins = remaining // 60
     secs = remaining % 60
 
-    if remaining <= 10:
+    if remaining <= SPEAK_ALERT_SECONDS:
         st.progress(progress_val, text=f"Speaking time: {mins}:{secs:02d} remaining")
         st.error(f"Almost done! {remaining}s left")
-    elif remaining <= 30:
+    elif remaining <= SPEAK_WARN_SECONDS:
         st.progress(progress_val, text=f"Speaking time: {mins}:{secs:02d} remaining")
         st.warning(f"Wrap up soon — {remaining}s left")
     else:
@@ -141,7 +142,7 @@ def render_part2_recording() -> None:
 
     if audio is not None:
         wav_bytes = audio.getvalue()
-        if len(wav_bytes) < 4000:
+        if len(wav_bytes) < MIN_AUDIO_BYTES:
             st.warning("Recording too short. Please try again.")
         else:
             question = cue.topic if cue else "Part 2 speech"

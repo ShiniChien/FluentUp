@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from core.models import Turn, CueCard, ExamSummary
-from core.config import PREP_SECONDS, SPEAK_SECONDS  # noqa: F401 – re-exported for speaking page
+from core.speaking.config import PREP_SECONDS, SPEAK_SECONDS  # noqa: F401 – re-exported for speaking page
 
 Phase = Literal[
     "home",

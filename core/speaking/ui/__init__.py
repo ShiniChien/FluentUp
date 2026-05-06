@@ -1,3 +1,3 @@
-from .app import main
+from core.speaking.ui.app import main
 
 __all__ = ["main"]

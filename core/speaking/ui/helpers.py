@@ -5,7 +5,7 @@ import threading
 import streamlit as st
 
 from core.async_utils import run_async
-from core.config import DEFAULT_ACCENT
+from core.speaking.config import DEFAULT_ACCENT
 from core.speaking.question_gen import QuestionGenerator
 
 

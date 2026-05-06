@@ -7,6 +7,8 @@ from core.config import ACCENT_LABELS
 
 
 def render_sidebar_dict(store) -> None:
+    st.markdown("## Listening")
+    
     # ── Speaker accent config ─────────────────────────────────────────────────
     st.sidebar.markdown("### 🗣 Speaker Accents")
     accent_options = list(ACCENT_LABELS.keys())

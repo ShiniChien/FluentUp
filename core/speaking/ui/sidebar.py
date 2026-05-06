@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import streamlit as st
 
-from core.config import ACCENT_LABELS, DEFAULT_ACCENT, DEFAULT_FEEDBACK_LANGUAGE, FEEDBACK_LANGUAGE_LABELS
+from core.speaking.config import ACCENT_LABELS, DEFAULT_ACCENT, DEFAULT_FEEDBACK_LANGUAGE, FEEDBACK_LANGUAGE_LABELS
 from core.speaking.session import ExamSession
-from .helpers import clear_streaming_state
+from core.speaking.ui.helpers import clear_streaming_state
 
 
 def render_sidebar(secrets: dict) -> None:

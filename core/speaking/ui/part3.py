@@ -7,12 +7,12 @@ import time
 import streamlit as st
 
 from core.async_utils import run_async
-from core.config import DEFAULT_ACCENT
+from core.speaking.config import DEFAULT_ACCENT, QUESTION_GEN_TIMEOUT_SEC, MIN_AUDIO_BYTES
 from core.models import Turn
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
-from .eval import render_evaluation, render_streaming_eval
-from .helpers import _RESULT_LOCK, clear_streaming_state, hear_question
+from core.speaking.ui.eval import render_evaluation, render_streaming_eval
+from core.speaking.ui.helpers import _RESULT_LOCK, clear_streaming_state, hear_question
 
 
 def _start_next_part3_question_gen(prev_question: str, answer_wav: bytes) -> None:
@@ -88,7 +88,7 @@ def render_part3_idle() -> None:
     next_q: dict | None = st.session_state.get("p3_next_q")
     if next_q is not None and not next_q.get("ready", False):
         elapsed = time.time() - next_q.get("_started", time.time())
-        if elapsed > 45:
+        if elapsed > QUESTION_GEN_TIMEOUT_SEC:
             next_q["error"] = "Question generation timed out."
             next_q["ready"] = True
             st.rerun()
@@ -138,7 +138,7 @@ def render_part3_idle() -> None:
     with col1:
         if audio is not None:
             wav_bytes = audio.getvalue()
-            if len(wav_bytes) < 4000:
+            if len(wav_bytes) < MIN_AUDIO_BYTES:
                 st.warning("Recording too short. Please try again.")
             else:
                 sess.turns.append(Turn(part=3, question=question, audio_bytes=wav_bytes))
@@ -207,7 +207,7 @@ def render_part3_summary() -> None:
     if not p3_turns:
         st.info("No answers recorded for Part 3.")
     else:
-        from .part1 import render_part_averages
+        from core.speaking.ui.part1 import render_part_averages
         evaluated = [t for t in p3_turns if t.result]
         if evaluated:
             render_part_averages(evaluated)

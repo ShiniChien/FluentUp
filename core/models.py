@@ -3,7 +3,7 @@ core/models.py
 ------------------
 Pure dataclasses shared across both pages.
 
-Speaking practice:  UserProfile, CriterionFeedback, EvaluationResult, Turn, CueCard, ExamSummary
+Speaking practice:  UserProfile, User, CriterionFeedback, EvaluationResult, Turn, CueCard, ExamSummary
 Listening practice: VocabEntry
 """
 from __future__ import annotations
@@ -12,11 +12,11 @@ from dataclasses import dataclass, field
 
 @dataclass
 class UserProfile:
-    name: str
-    age: int
-    occupation: str          # "student" | "worker" | "other"
-    occupation_detail: str   # e.g. "studying Computer Science at HUST"
-    gender: str = "male"     # "male" | "female" | "other"
+    name: str = ""
+    age: int = 22
+    occupation: str = "student"  # "student" | "worker" | "other"
+    occupation_detail: str = ""
+    gender: str = "male"         # "male" | "female" | "other"
 
     def prompt_context(self) -> str:
         return (
@@ -26,15 +26,10 @@ class UserProfile:
 
 
 @dataclass
-class User:
-    username: str
-    password_hash: str
-    role: str = "user"           # "root" | "user"
-    name: str = ""
-    age: int = 22
-    occupation: str = "student"  # "student" | "worker" | "other"
-    occupation_detail: str = ""
-    gender: str = "male"         # "male" | "female" | "other"
+class User(UserProfile):
+    username: str = ""
+    password_hash: str = ""
+    role: str = "user"   # "root" | "user"
     user_id: str = ""
 
 

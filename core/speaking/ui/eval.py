@@ -8,7 +8,7 @@ import streamlit as st
 
 from core.models import CriterionFeedback, EvaluationResult, Turn
 from core.speaking.evaluator import LiveEvaluationPipeline
-from .helpers import _RESULT_LOCK, clear_streaming_state
+from core.speaking.ui.helpers import _RESULT_LOCK, clear_streaming_state
 
 
 def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:

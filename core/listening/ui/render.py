@@ -4,12 +4,12 @@ import random
 
 import streamlit as st
 
-from core.config import LIVE_MODEL, LISTENING_TURNS_MIN, LISTENING_TURNS_MAX, EXAMINER_ACCENTS
+from core.config import LIVE_MODEL, VOICES, ENGLISH_ACCENTS
+from core.listening.config import LISTENING_TURNS_MIN, LISTENING_TURNS_MAX, SPEAKER_COLORS
 from core.async_utils import run_async
 from core.viet_words import generate_topic
 from core.listening.dialogue_gen import generate_turn
-from .constants import SPEAKER_COLORS, VOICES
-from .scoring import score_answers, mask_line, QUESTION_TYPES
+from core.listening.ui.scoring import score_answers, mask_line, QUESTION_TYPES
 
 _Q_TYPE_COLOR = "#7B5EA7"
 
@@ -153,8 +153,8 @@ def render_generating(secrets: dict) -> None:
     mode     = st.session_state["echo_mode"]
     voice_a  = st.session_state["echo_voice_a"]
     voice_b  = st.session_state["echo_voice_b"]
-    accent_a = EXAMINER_ACCENTS.get(st.session_state["echo_accent_a"], "")
-    accent_b = EXAMINER_ACCENTS.get(st.session_state["echo_accent_b"], "")
+    accent_a = ENGLISH_ACCENTS.get(st.session_state["echo_accent_a"], "")
+    accent_b = ENGLISH_ACCENTS.get(st.session_state["echo_accent_b"], "")
     dialogue: list[dict] = st.session_state["echo_dialogue"]
     masked:   list[dict] = st.session_state["echo_masked"]
     answers:  dict       = st.session_state["echo_answers"]

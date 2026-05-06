@@ -7,12 +7,12 @@ import time
 import streamlit as st
 
 from core.async_utils import run_async
-from core.config import DEFAULT_ACCENT
+from core.speaking.config import DEFAULT_ACCENT, QUESTION_GEN_TIMEOUT_SEC, MIN_AUDIO_BYTES
 from core.models import Turn, UserProfile
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
-from .eval import render_evaluation, assemble_bg_evals, start_bg_turn_eval
-from .helpers import _RESULT_LOCK, hear_question
+from core.speaking.ui.eval import render_evaluation, assemble_bg_evals, start_bg_turn_eval
+from core.speaking.ui.helpers import _RESULT_LOCK, hear_question
 
 
 def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
@@ -91,7 +91,7 @@ def render_part1_idle() -> None:
     next_q: dict | None = st.session_state.get("p1_next_q")
     if next_q is not None and not next_q.get("ready", False):
         elapsed = time.time() - next_q.get("_started", time.time())
-        if elapsed > 45:
+        if elapsed > QUESTION_GEN_TIMEOUT_SEC:
             next_q["error"] = "Question generation timed out."
             next_q["ready"] = True
             st.rerun()
@@ -141,7 +141,7 @@ def render_part1_idle() -> None:
     with col1:
         if audio is not None:
             wav_bytes = audio.getvalue()
-            if len(wav_bytes) < 4000:
+            if len(wav_bytes) < MIN_AUDIO_BYTES:
                 st.warning("Recording too short. Please try again.")
             else:
                 sess.turns.append(Turn(part=1, question=question, audio_bytes=wav_bytes))

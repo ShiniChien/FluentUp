@@ -5,14 +5,6 @@ LLM prompt templates for the speaking practice page (FluentUp).
 """
 from __future__ import annotations
 
-# ── Transcription (low-level, used by live_session) ──────────────────────────
-
-TRANSCRIPTION_SYSTEM = (
-    "You are a transcription assistant. "
-    "Listen carefully and transcribe exactly what the user says. "
-    "Do not add any commentary or evaluation."
-)
-
 # ── Next Part 1 question (used by question_gen → gemini_live_next_question) ──
 
 NEXT_QUESTION_SYSTEM = (

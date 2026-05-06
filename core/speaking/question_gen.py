@@ -17,8 +17,8 @@ from core.models import CueCard
 from core.live_session import gemini_live_speak, gemini_live_next_question
 from core.speaking.question_bank import pick_opening_question
 from core.viet_words import seed_words as _seed_words_shared
-from core.config import (
-    EXAMINER_ACCENTS,
+from core.config import ENGLISH_ACCENTS
+from core.speaking.config import (
     DEFAULT_ACCENT,
     DEFAULT_VOICE,
     PART3_QUESTIONS_PER_SESSION,
@@ -88,7 +88,7 @@ class QuestionGenerator:
     ) -> tuple[str, bytes]:
         """Generate Q(n+1) dynamically from Q(n) text + audio of A(n).
         Returns (question_text, question_wav)."""
-        accent_instruction = EXAMINER_ACCENTS.get(accent, EXAMINER_ACCENTS[DEFAULT_ACCENT])
+        accent_instruction = ENGLISH_ACCENTS.get(accent, ENGLISH_ACCENTS[DEFAULT_ACCENT])
         profile_ctx = profile.prompt_context() if profile else ""
         context = ""
         if accent_instruction.strip():
@@ -115,7 +115,7 @@ class QuestionGenerator:
         profile: "UserProfile | None" = None,
     ) -> tuple[str, bytes]:
         """Generate the next Part 3 question from previous question text + audio of answer."""
-        accent_instruction = EXAMINER_ACCENTS.get(accent, EXAMINER_ACCENTS[DEFAULT_ACCENT])
+        accent_instruction = ENGLISH_ACCENTS.get(accent, ENGLISH_ACCENTS[DEFAULT_ACCENT])
         profile_ctx = profile.prompt_context() if profile else ""
         context = ""
         if accent_instruction.strip():
@@ -193,7 +193,7 @@ class QuestionGenerator:
 
         accent: one of 'us', 'uk', 'in', 'au' (see core/accents.py)
         """
-        system_instruction = EXAMINER_ACCENTS.get(accent, EXAMINER_ACCENTS[DEFAULT_ACCENT])
+        system_instruction = ENGLISH_ACCENTS.get(accent, ENGLISH_ACCENTS[DEFAULT_ACCENT])
         return await gemini_live_speak(
             api_key=self._api_key,
             text=text,

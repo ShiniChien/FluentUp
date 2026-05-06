@@ -1,54 +1,16 @@
-"""Central config for FluentUp — all tunable constants live here."""
+"""Central config for FluentUp — shared constants used by both Speaking and Listening."""
 from __future__ import annotations
 
 # ── Gemini Live ───────────────────────────────────────────────────────────────
 
-LIVE_MODEL   = "models/gemini-3.1-flash-live-preview"
-INPUT_RATE   = 16000   # Hz — Gemini Live expects 16 kHz PCM input
-OUTPUT_RATE  = 24000   # Hz — Gemini Live audio output is 24 kHz PCM
-CHUNK_MS     = 100     # milliseconds per audio chunk sent to Live API
+LIVE_MODEL  = "models/gemini-3.1-flash-live-preview"
+INPUT_RATE  = 16000  # Hz — Gemini Live expects 16 kHz PCM input
+OUTPUT_RATE = 24000  # Hz — Gemini Live audio output is 24 kHz PCM
+CHUNK_MS    = 100    # milliseconds per audio chunk sent to Live API
 
-# ── Exam timing ───────────────────────────────────────────────────────────────
+# ── English accents (used by both Speaking examiner TTS and Listening dialogue) ─
 
-PREP_SECONDS  = 60     # Part 2 preparation time
-SPEAK_SECONDS = 120    # Part 2 speaking time
-
-# ── Part 1 ────────────────────────────────────────────────────────────────────
-
-PART1_QUESTIONS_PER_SESSION = 10  # how many questions to sample per session
-
-# ── Part 3 ────────────────────────────────────────────────────────────────────
-
-PART3_QUESTIONS_PER_SESSION = 5
-
-PART3_TOPICS = [
-    "education",
-    "technology and society",
-    "environmental challenges",
-    "cultural traditions",
-    "urban development",
-    "health and wellbeing",
-]
-
-# ── Cue card topic seeding ────────────────────────────────────────────────────
-
-SEED_WORDS_MIN = 1   # minimum Vietnamese seed words per cue card
-SEED_WORDS_MAX = 3   # maximum Vietnamese seed words per cue card
-
-# ── TTS / Examiner voice ──────────────────────────────────────────────────────
-
-DEFAULT_VOICE  = "Kore"
-DEFAULT_ACCENT = "us"
-
-VOICES: list[str] = [
-    "Zephyr", "Charon", "Fenrir", "Orus", "Callirrhoe", "Enceladus",
-    "Umbriel", "Despina", "Algenib", "Laomedeia", "Alnilam", "Gacrux",
-    "Achird", "Vindemiatrix", "Sadaltager", "Puck", "Kore", "Leda",
-    "Aoede", "Autonoe", "Iapetus", "Algieba", "Erinome", "Rasalgethi",
-    "Achernar", "Schedar", "Pulcherrima", "Zubenelgenubi", "Sadachbia", "Sulafat",
-]
-
-EXAMINER_ACCENTS: dict[str, str] = {
+ENGLISH_ACCENTS: dict[str, str] = {
     "us": (
         "You are a professional IELTS Speaking examiner with a clear, neutral American English accent. "
         "Your delivery is calm, professional, and encouraging. "
@@ -81,16 +43,12 @@ ACCENT_LABELS: dict[str, str] = {
     "au": "Australian",
 }
 
-DEFAULT_FEEDBACK_LANGUAGE = "vi"
+# ── TTS voices (used by both Speaking examiner TTS and Listening dialogue) ────
 
-FEEDBACK_LANGUAGE_LABELS: dict[str, str] = {
-    "vi": "Tiếng Việt",
-    "en": "English",
-}
-
-LISTENING_TURNS_MIN = 1
-LISTENING_TURNS_MAX = 30
-
-# ── Listening dialogue speaker colors ──────────────────────────────────────────
-
-SPEAKER_COLORS: dict[str, str] = {"A": "#1565C0", "B": "#6A1B9A"}
+VOICES: list[str] = [
+    "Zephyr", "Charon", "Fenrir", "Orus", "Callirrhoe", "Enceladus",
+    "Umbriel", "Despina", "Algenib", "Laomedeia", "Alnilam", "Gacrux",
+    "Achird", "Vindemiatrix", "Sadaltager", "Puck", "Kore", "Leda",
+    "Aoede", "Autonoe", "Iapetus", "Algieba", "Erinome", "Rasalgethi",
+    "Achernar", "Schedar", "Pulcherrima", "Zubenelgenubi", "Sadachbia", "Sulafat",
+]

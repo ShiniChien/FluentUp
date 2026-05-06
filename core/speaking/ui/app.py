@@ -9,13 +9,13 @@ from core.speaking.evaluator import LiveEvaluationPipeline
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
 
-from .helpers import clear_streaming_state
-from .sidebar import render_sidebar
-from .home import render_home
-from .part1 import render_part1_loading, render_part1_idle, render_part1_summary
-from .part2 import render_part2_idle, render_part2_thinking, render_part2_recording, render_part2_evaluating, render_part2_result
-from .part3 import render_part3_loading, render_part3_idle, render_part3_result, render_part3_summary
-from .summary import render_session_summary
+from core.speaking.ui.helpers import clear_streaming_state
+from core.speaking.ui.sidebar import render_sidebar
+from core.speaking.ui.home import render_home
+from core.speaking.ui.part1 import render_part1_loading, render_part1_idle, render_part1_summary
+from core.speaking.ui.part2 import render_part2_idle, render_part2_thinking, render_part2_recording, render_part2_evaluating, render_part2_result
+from core.speaking.ui.part3 import render_part3_loading, render_part3_idle, render_part3_result, render_part3_summary
+from core.speaking.ui.summary import render_session_summary
 
 _STATE_VERSION = 8
 
@@ -53,14 +53,14 @@ def _init_state(secrets: dict) -> None:
 
     # Sync user_profile from logged-in account if not set
     if "user_profile" not in st.session_state:
-        user = current_user()
-        if user and user.get("name"):
+        u = current_user()
+        if u and u.get("name"):
             st.session_state["user_profile"] = UserProfile(
-                name=user.get("name", ""),
-                age=int(user.get("age") or 22),
-                occupation=user.get("occupation", "student"),
-                occupation_detail=user.get("occupation_detail", ""),
-                gender=user.get("gender", "male"),
+                name=u.get("name", ""),
+                age=int(u.get("age") or 22),
+                occupation=u.get("occupation", "student"),
+                occupation_detail=u.get("occupation_detail", ""),
+                gender=u.get("gender", "male"),
             )
 
 
