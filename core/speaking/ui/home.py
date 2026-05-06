@@ -8,22 +8,7 @@ from core.speaking.session import ExamSession
 
 def render_home() -> None:
     st.title("Speaking Practice")
-    st.subheader("IELTS Speaking — Part 1 / 2 / 3")
-
-    user = current_user()
     sess: ExamSession = st.session_state.session
-
-    if user:
-        name = user.get("name") or user.get("username", "")
-        detail = user.get("occupation_detail", "")
-        age = user.get("age", "")
-        st.markdown(
-            f"<div style='background:#E3F2FD;border-left:4px solid #1565C0;"
-            f"border-radius:6px;padding:10px 16px;margin-bottom:16px;color:#1a1a1a'>"
-            f"👤 <b>{name}</b>{', ' + str(age) if age else ''}"
-            f"{' — ' + detail if detail else ''}</div>",
-            unsafe_allow_html=True,
-        )
 
     st.markdown("Choose a part to start practicing:")
 
