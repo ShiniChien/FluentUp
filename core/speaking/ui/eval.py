@@ -10,6 +10,45 @@ from core.models import CriterionFeedback, EvaluationResult, Turn
 from core.speaking.evaluator import LiveEvaluationPipeline
 from core.speaking.ui.helpers import _RESULT_LOCK, clear_streaming_state
 
+_DEEPDIVE_PROMPT = """\
+You are an experienced IELTS Speaking examiner who has just finished evaluating a student's answer.
+
+The student answered this question:
+"{question}"
+
+Their answer (transcript):
+"{transcript}"
+
+Your evaluation feedback:
+{feedback}
+
+The student now wants to discuss this feedback with you in depth. Your role:
+- Explain specific points from your feedback more clearly
+- Give concrete examples of better vocabulary, grammar, or phrasing
+- Answer the student's questions about any aspect of their performance
+- Suggest specific practice techniques for improvement
+- Be encouraging but honest
+- Speak naturally as in a real conversation — not as a formal evaluation
+"""
+
+
+def _launch_deepdive(question: str, transcript: str, feedback: str) -> None:
+    """Reset chat session and redirect to Chat page with examiner context."""
+    system_prompt = _DEEPDIVE_PROMPT.format(
+        question=question or "(not specified)",
+        transcript=transcript or "(not available)",
+        feedback=feedback,
+    )
+    old = st.session_state.pop("chat_session", None)
+    if old is not None:
+        try:
+            old.stop()
+        except Exception:
+            pass
+    st.session_state.pop("chat_last_hash", None)
+    st.session_state["chat_system_prompt"] = system_prompt
+    st.switch_page("pages/3_Chat.py")
+
 
 def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
     evaluator: LiveEvaluationPipeline | None = st.session_state.get("evaluator")
@@ -163,7 +202,7 @@ def render_streaming_eval(turn: Turn, part: int) -> bool:
     return True
 
 
-def render_evaluation(result: EvaluationResult, key_suffix: str = "") -> None:
+def render_evaluation(result: EvaluationResult, key_suffix: str = "", question: str = "") -> None:
     st.markdown("#### Examiner Feedback")
 
     if result.transcript:
@@ -189,10 +228,20 @@ def render_evaluation(result: EvaluationResult, key_suffix: str = "") -> None:
 
     feedback_text = "\n".join(fb.feedback for fb in result.feedbacks if fb.feedback)
     if feedback_text:
-        st.download_button(
-            "Download Feedback",
-            data=feedback_text,
-            file_name="feedback.txt",
-            mime="text/plain",
-            key=f"dl_feedback_{key_suffix}" if key_suffix else None,
-        )
+        col_dl, col_dive = st.columns([3, 2])
+        with col_dl:
+            st.download_button(
+                "Download Feedback",
+                data=feedback_text,
+                file_name="feedback.txt",
+                mime="text/plain",
+                key=f"dl_feedback_{key_suffix}" if key_suffix else None,
+            )
+        with col_dive:
+            if st.button(
+                "💬 Hỏi examiner",
+                key=f"deepdive_{key_suffix}" if key_suffix else "deepdive",
+                use_container_width=True,
+                help="Mở Live Chat để hỏi sâu hơn về nhận xét này",
+            ):
+                _launch_deepdive(question, result.transcript, feedback_text)

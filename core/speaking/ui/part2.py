@@ -219,7 +219,7 @@ def render_part2_result() -> None:
     with st.expander("Your answer (playback)", expanded=False):
         st.audio(turn.audio_bytes, format="audio/wav")
 
-    render_evaluation(turn.result)
+    render_evaluation(turn.result, question=turn.question)
 
     st.markdown("---")
     col1, col2, col3 = st.columns(3)

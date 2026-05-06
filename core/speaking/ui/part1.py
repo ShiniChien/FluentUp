@@ -188,7 +188,7 @@ def render_part1_summary() -> None:
                     expanded=False,
                 ):
                     st.audio(turn.audio_bytes, format="audio/wav")
-                    render_evaluation(turn.result, key_suffix=f"p1_{i}")
+                    render_evaluation(turn.result, key_suffix=f"p1_{i}", question=turn.question)
         else:
             st.info("No evaluated answers yet.")
 
