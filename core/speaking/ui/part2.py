@@ -5,7 +5,9 @@ import time
 import streamlit as st
 
 from core.async_utils import run_async
+from core.auth import current_user
 from core.models import Turn
+from core.shared import get_store
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.config import MIN_AUDIO_BYTES, SPEAK_WARN_SECONDS, SPEAK_ALERT_SECONDS
 from core.speaking.session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
@@ -195,6 +197,24 @@ def render_part2_result() -> None:
 
     turn = p2_turns[-1]
     st.header("Part 2 — Result")
+
+    # Save attempt to store once per result (keyed by turn index)
+    save_key = f"p2_saved_{len(p2_turns) - 1}"
+    if not st.session_state.get(save_key):
+        try:
+            u = current_user()
+            user_id = u.get("_id", "default") if u else "default"
+            cue = sess.part2_cue_card
+            run_async(get_store().save_part2_attempt(
+                user_id=str(user_id),
+                topic=sess.part2_topic,
+                transcript=turn.result.transcript,
+                cue_points=cue.points if cue else [],
+                cue_explain=cue.explain if cue else "",
+            ))
+            st.session_state[save_key] = True
+        except Exception:
+            pass  # non-critical — don't block the UI
 
     with st.expander("Your answer (playback)", expanded=False):
         st.audio(turn.audio_bytes, format="audio/wav")

@@ -44,6 +44,7 @@ class FluentUpStore:
         db = self._client["fluentup"]
         self._vocabulary = db["vocabulary"]
         self._users = db["users"]
+        self._part2_attempts = db["speaking_part2"]
 
     async def ping(self) -> bool:
         try:
@@ -139,3 +140,37 @@ class FluentUpStore:
     async def delete_user(self, user_id: str) -> bool:
         result = await self._users.delete_one({"_id": ObjectId(user_id)})
         return result.deleted_count > 0
+
+    # ── Part 2 attempts ───────────────────────────────────────────────────────
+
+    async def save_part2_attempt(
+        self,
+        user_id: str,
+        topic: str,
+        transcript: str,
+        cue_points: list[str],
+        cue_explain: str = "",
+    ) -> str:
+        doc: dict[str, Any] = {
+            "user_id":     user_id,
+            "topic":       topic,
+            "transcript":  transcript,
+            "cue_points":  cue_points,
+            "cue_explain": cue_explain,
+            "created_at":  datetime.datetime.utcnow(),
+        }
+        result = await _retry_write(self._part2_attempts.insert_one, doc)
+        return str(result.inserted_id)
+
+    async def get_part2_attempts(
+        self, user_id: str, limit: int = 20
+    ) -> list[dict]:
+        cursor = self._part2_attempts.find(
+            {"user_id": user_id},
+            sort=[("created_at", -1)],
+            limit=limit,
+        )
+        docs = await cursor.to_list(length=limit)
+        for d in docs:
+            d["_id"] = str(d["_id"])
+        return docs
