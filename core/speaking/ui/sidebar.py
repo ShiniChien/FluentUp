@@ -41,6 +41,15 @@ def render_sidebar(secrets: dict) -> None:
 
         st.divider()
 
+        st.markdown("**Listening Mode**")
+        st.toggle(
+            "Hide question text, auto-play audio",
+            value=st.session_state.get("listening_mode", True),
+            key="listening_mode",
+        )
+
+        st.divider()
+
         sess: ExamSession = st.session_state.session
         if sess.phase != "home":
             if st.button("New Session", use_container_width=True):

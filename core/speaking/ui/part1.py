@@ -12,7 +12,7 @@ from core.models import Turn, UserProfile
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
 from core.speaking.ui.eval import render_evaluation, assemble_bg_evals, start_bg_turn_eval
-from core.speaking.ui.helpers import _RESULT_LOCK, hear_question
+from core.speaking.ui.helpers import _RESULT_LOCK, hear_question, seed_question_audio_cache
 
 _QUESTION_POLL_INTERVAL = 0.5
 _EVAL_POLL_INTERVAL = 0.8
@@ -124,17 +124,32 @@ def render_part1_idle() -> None:
     next_wav = st.session_state.pop("p1_next_q_wav", None)
     if next_wav:
         st.audio(next_wav, format="audio/wav", autoplay=True)
+        seed_question_audio_cache(f"p1_tts_{idx}", next_wav)
 
     if question is None:
         sess.phase = "part1_summary"
         st.rerun()
         return
 
-    st.markdown(
-        f"<div style='border-left:4px solid #1565C0;border-radius:6px;padding:20px 24px;"
-        f"font-size:1.3em;font-weight:500;margin:20px 0'>{question}</div>",
-        unsafe_allow_html=True,
-    )
+    listening_mode = st.session_state.get("listening_mode", True)
+    show_key = f"p1_show_q_{idx}"
+
+    if listening_mode:
+        if st.session_state.get(show_key, False):
+            st.markdown(
+                f"<div style='border-left:4px solid #1565C0;border-radius:6px;padding:20px 24px;"
+                f"font-size:1.3em;font-weight:500;margin:20px 0'>{question}</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.button("Show question", key=f"p1_show_q_btn_{idx}", use_container_width=True,
+                      on_click=lambda: st.session_state.update({show_key: True}))
+    else:
+        st.markdown(
+            f"<div style='border-left:4px solid #1565C0;border-radius:6px;padding:20px 24px;"
+            f"font-size:1.3em;font-weight:500;margin:20px 0'>{question}</div>",
+            unsafe_allow_html=True,
+        )
 
     hear_question(question, key=f"p1_tts_{idx}")
 
