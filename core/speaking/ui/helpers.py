@@ -50,30 +50,30 @@ def hear_question(question: str, key: str) -> None:
 
 
 def render_question_blurred(html_content: str, uid: str) -> None:
-    """Render question HTML. If listening_mode, blur it and reveal on click (pure client-side)."""
+    """Render question HTML. If listening_mode, blur it and reveal on click (CSS-only, no JS)."""
     listening_mode = st.session_state.get("listening_mode", True)
     if not listening_mode:
         st.markdown(html_content, unsafe_allow_html=True)
         return
 
+    # CSS checkbox hack: clicking the label toggles the checkbox → :checked removes blur
+    safe_uid = uid.replace("-", "_")
     st.markdown(
         f"""
-        <div id="q-wrap-{uid}"
-             style="cursor:pointer;user-select:none"
-             onclick="
-               var el=document.getElementById('q-inner-{uid}');
-               el.style.filter='none';
-               el.style.cursor='default';
-               this.title='';
-             "
-             title="Click to reveal">
-          <div id="q-inner-{uid}" style="filter:blur(6px);transition:filter .2s">
-            {html_content.replace('<div ', '<div ').strip()}
+        <style>
+          #qcb_{safe_uid} {{ display: none; }}
+          #qcb_{safe_uid}:checked + label .qblur_{safe_uid} {{ filter: none; cursor: default; }}
+          #qcb_{safe_uid}:checked + label .qhint_{safe_uid} {{ display: none; }}
+        </style>
+        <input type="checkbox" id="qcb_{safe_uid}">
+        <label for="qcb_{safe_uid}" style="cursor:pointer;display:block;user-select:none">
+          <div class="qblur_{safe_uid}" style="filter:blur(6px);transition:filter .2s;pointer-events:none">
+            {html_content}
           </div>
-          <div style="text-align:center;font-size:.8em;color:#888;margin-top:4px">
-            🔒 Click to reveal question
+          <div class="qhint_{safe_uid}" style="text-align:center;font-size:.8em;color:#888;margin-top:4px">
+            Click to reveal question
           </div>
-        </div>
+        </label>
         """,
         unsafe_allow_html=True,
     )
