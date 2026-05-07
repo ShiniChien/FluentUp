@@ -63,15 +63,11 @@ def render_question_blurred(html_content: str, uid: str) -> None:
         <style>
           #qcb_{safe_uid} {{ display: none; }}
           #qcb_{safe_uid}:checked + label .qblur_{safe_uid} {{ filter: none; cursor: default; }}
-          #qcb_{safe_uid}:checked + label .qhint_{safe_uid} {{ display: none; }}
         </style>
         <input type="checkbox" id="qcb_{safe_uid}">
         <label for="qcb_{safe_uid}" style="cursor:pointer;display:block;user-select:none">
           <div class="qblur_{safe_uid}" style="filter:blur(6px);transition:filter .2s;pointer-events:none">
             {html_content}
-          </div>
-          <div class="qhint_{safe_uid}" style="text-align:center;font-size:.8em;color:#888;margin-top:4px">
-            Click to reveal question
           </div>
         </label>
         """,
