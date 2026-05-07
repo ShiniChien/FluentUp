@@ -14,6 +14,9 @@ from core.speaking.session import ExamSession
 from core.speaking.ui.eval import render_evaluation, assemble_bg_evals, start_bg_turn_eval
 from core.speaking.ui.helpers import _RESULT_LOCK, hear_question
 
+_QUESTION_POLL_INTERVAL = 0.5
+_EVAL_POLL_INTERVAL = 0.8
+
 
 def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
     qgen: QuestionGenerator | None = st.session_state.get("question_gen")
@@ -98,7 +101,7 @@ def render_part1_idle() -> None:
             return
         st.caption(f"Question {idx + 1}")
         st.info("Preparing next question...")
-        time.sleep(0.5)
+        time.sleep(_QUESTION_POLL_INTERVAL)
         st.rerun()
         return
 
@@ -168,7 +171,7 @@ def render_part1_summary() -> None:
         total = len(p1_turns)
         st.info(f"Evaluating answers in background… ({evaluated_count}/{total} complete)")
         st.progress(evaluated_count / total if total else 0)
-        time.sleep(0.8)
+        time.sleep(_EVAL_POLL_INTERVAL)
         st.rerun()
         return
 

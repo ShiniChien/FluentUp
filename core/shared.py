@@ -1,11 +1,3 @@
-"""
-core/shared.py
-------------------
-Utilities shared across all Streamlit pages (Speaking + Listening).
-
-Centralises secrets loading and store initialisation so each page does not
-duplicate these concerns.
-"""
 from __future__ import annotations
 
 import streamlit as st
@@ -30,18 +22,9 @@ def load_secrets() -> dict:
 
 
 def get_store(secrets: dict | None = None) -> FluentUpStore | None:
-    """
-    Return the shared FluentUpStore instance, creating it on first call.
-    Stores the instance in st.session_state["store"] so it is reused across
-    reruns and shared between pages in the same browser session.
-    Returns None when MongoDB credentials are not configured.
-    """
-    existing = st.session_state.get("store")
-    if existing is not None:
-        return existing
+    # Reuse across reruns; value may be None when MongoDB credentials are missing.
     if "store" in st.session_state:
-        # Explicitly set to None — credentials missing
-        return None
+        return st.session_state["store"]
 
     if secrets is None:
         secrets = load_secrets()

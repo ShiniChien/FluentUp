@@ -7,8 +7,12 @@ import time
 import streamlit as st
 
 from core.models import CriterionFeedback, EvaluationResult, Turn
-from core.speaking.evaluator import LiveEvaluationPipeline
+from core.speaking.evaluator import SpeakingEvaluator
 from core.speaking.ui.helpers import _RESULT_LOCK, clear_streaming_state
+
+_EVAL_TIMEOUT_SECS = 120
+_EVAL_PROGRESS_DENOMINATOR = 90
+_POLL_INTERVAL = 0.8
 
 _DEEPDIVE_PROMPT = """\
 You are an experienced IELTS Speaking examiner who has just finished evaluating a student's answer.
@@ -51,7 +55,7 @@ def _launch_deepdive(question: str, transcript: str, feedback: str) -> None:
 
 
 def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
-    evaluator: LiveEvaluationPipeline | None = st.session_state.get("evaluator")
+    evaluator: SpeakingEvaluator | None = st.session_state.get("evaluator")
     if evaluator is None:
         return
     language: str = st.session_state.get("feedback_language", "vi")
@@ -81,7 +85,7 @@ def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
 def assemble_bg_evals(sess) -> int:
     """Assemble completed background evals into turn.result. Returns pending count."""
     turn_evals: dict = st.session_state.get("turn_evals", {})
-    _timeout = 120.0
+    _timeout = _EVAL_TIMEOUT_SECS
     pending = 0
     for i, turn in enumerate(sess.turns):
         if turn.result is not None:
@@ -112,7 +116,7 @@ def assemble_bg_evals(sess) -> int:
 
 
 def _start_streaming_eval(turn: Turn, part: int) -> None:
-    evaluator: LiveEvaluationPipeline | None = st.session_state.get("evaluator")
+    evaluator: SpeakingEvaluator | None = st.session_state.get("evaluator")
     if evaluator is None:
         return
     language: str = st.session_state.get("feedback_language", "vi")
@@ -155,14 +159,14 @@ def render_streaming_eval(turn: Turn, part: int) -> bool:
 
     if "done" not in result_state and "error" not in result_state:
         elapsed = time.time() - result_state.get("_started", time.time())
-        if elapsed > 120:
+        if elapsed > _EVAL_TIMEOUT_SECS:
             with _RESULT_LOCK:
-                result_state["error"] = "Evaluation timed out after 2 minutes. Please try again."
+                result_state["error"] = f"Evaluation timed out after {_EVAL_TIMEOUT_SECS // 60} minutes. Please try again."
             st.rerun()
             return False
         st.markdown("**Examiner is reviewing your answer…**")
-        st.progress(min(elapsed / 90, 0.95), text="This may take a moment with thinking enabled")
-        time.sleep(0.8)
+        st.progress(min(elapsed / _EVAL_PROGRESS_DENOMINATOR, 0.95), text="This may take a moment with thinking enabled")
+        time.sleep(_POLL_INTERVAL)
         st.rerun()
         return False
 

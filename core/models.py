@@ -1,11 +1,3 @@
-"""
-core/models.py
-------------------
-Pure dataclasses shared across both pages.
-
-Speaking practice:  UserProfile, User, CriterionFeedback, EvaluationResult, Turn, CueCard, ExamSummary
-Listening practice: VocabEntry
-"""
 from __future__ import annotations
 from dataclasses import dataclass, field
 

@@ -1,12 +1,3 @@
-"""
-core/store.py
------------------
-MongoDB persistence layer via motor (async).
-
-Collections:
-  vocabulary — personal dictionary entries saved
-  users      — app accounts (username/password_hash/role + profile fields)
-"""
 from __future__ import annotations
 
 import asyncio
@@ -79,8 +70,8 @@ class FluentUpStore:
             limit=limit,
         )
         docs = await cursor.to_list(length=limit)
-        for d in docs:
-            d["_id"] = str(d["_id"])
+        for doc in docs:
+            doc["_id"] = str(doc["_id"])
         return docs
 
     async def search_vocab(
@@ -93,8 +84,8 @@ class FluentUpStore:
             limit=limit,
         )
         docs = await cursor.to_list(length=limit)
-        for d in docs:
-            d["_id"] = str(d["_id"])
+        for doc in docs:
+            doc["_id"] = str(doc["_id"])
         return docs
 
     async def delete_vocab(self, entry_id: str) -> bool:
@@ -112,8 +103,8 @@ class FluentUpStore:
     async def list_users(self) -> list[dict]:
         cursor = self._users.find({}, sort=[("created_at", 1)])
         docs = await cursor.to_list(length=500)
-        for d in docs:
-            d["_id"] = str(d["_id"])
+        for doc in docs:
+            doc["_id"] = str(doc["_id"])
         return docs
 
     async def create_user(
@@ -188,6 +179,6 @@ class FluentUpStore:
             limit=limit,
         )
         docs = await cursor.to_list(length=limit)
-        for d in docs:
-            d["_id"] = str(d["_id"])
+        for doc in docs:
+            doc["_id"] = str(doc["_id"])
         return docs

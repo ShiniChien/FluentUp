@@ -1,13 +1,3 @@
-"""
-core/evaluator.py
----------------------
-Evaluate IELTS speaking via a single Gemini Live session with thinking enabled.
-
-Flow:
-  user audio → Gemini Live (thinking=True, single examiner)
-             → spoken feedback covering FC / LR / GR / Pronunciation
-             → output_audio_transcription shown directly in UI
-"""
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +10,7 @@ from core.speaking.prompts import get_examiner_prompt
 _EVAL_TIMEOUT = 90.0  # seconds — longer than before because thinking adds latency
 
 
-class LiveEvaluationPipeline:
+class SpeakingEvaluator:
     def __init__(self, api_key: str, model: str = LIVE_MODEL, **_kwargs) -> None:
         self._api   = api_key
         self._model = model

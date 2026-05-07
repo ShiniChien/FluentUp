@@ -1,14 +1,4 @@
-"""
-app.py — FluentUp navigation hub
-
-Run locally:
-    streamlit run app.py
-
-Pages:
-  • Home         (pages/0_Home.py)      — landing, no sidebar
-  • Speaking     (pages/1_Speaking.py)  — IELTS speaking practice
-  • Listening    (pages/2_Listening.py) — IELTS listening practice
-"""
+# streamlit run app.py
 import streamlit as st
 
 from core.async_utils import run_async
@@ -21,7 +11,7 @@ st.set_page_config(
     layout="wide",
 )
 
-pg = st.navigation(
+nav_pages = st.navigation(
     {
         "FluentUp": [
             st.Page("pages/0_Home.py",      title="Home",      icon="🏠", default=True),
@@ -42,4 +32,4 @@ if _store and "vocab_indexes_ensured" not in st.session_state:
 
 render_vocab_sidebar(_store)
 
-pg.run()
+nav_pages.run()

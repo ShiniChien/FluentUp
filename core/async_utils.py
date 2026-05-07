@@ -1,12 +1,5 @@
-"""
-core/async_utils.py
------------------------
-Shared background-event-loop utilities used by all Streamlit pages.
-
-Streamlit's main thread is synchronous; a single persistent asyncio loop
-runs in a daemon thread per browser session (stored in st.session_state so it
-survives reruns).  All async coroutines are dispatched via run_async().
-"""
+# Streamlit's main thread is synchronous; each browser session gets a single
+# persistent asyncio event loop in a daemon thread (st.session_state["_bg_loop"]).
 from __future__ import annotations
 
 import asyncio
@@ -38,7 +31,6 @@ def get_bg_loop() -> asyncio.AbstractEventLoop:
 
 
 def run_async(coro):
-    """Dispatch *coro* to the background loop and block until it completes."""
     loop = get_bg_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     return future.result()

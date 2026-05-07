@@ -14,6 +14,8 @@ from core.speaking.session import ExamSession
 from core.speaking.ui.eval import render_evaluation, render_streaming_eval
 from core.speaking.ui.helpers import _RESULT_LOCK, clear_streaming_state, hear_question
 
+_QUESTION_POLL_INTERVAL = 0.5
+
 
 def _start_next_part3_question_gen(prev_question: str, answer_wav: bytes) -> None:
     qgen: QuestionGenerator | None = st.session_state.get("question_gen")
@@ -95,7 +97,7 @@ def render_part3_idle() -> None:
             return
         st.caption(f"Question {idx + 1}")
         st.info("Preparing next question...")
-        time.sleep(0.5)
+        time.sleep(_QUESTION_POLL_INTERVAL)
         st.rerun()
         return
 
@@ -185,16 +187,17 @@ def render_part3_result() -> None:
             sess.phase = "part3_idle"
             st.rerun()
     with col2:
-        if st.button("Retry This Question", use_container_width=True):
+        if st.button("End Part 3", use_container_width=True):
+            sess.phase = "part3_summary"
+            st.rerun()
+    with col3:
+        st.caption("Discards your last answer")
+        if st.button("Retry", use_container_width=True):
             sess.turns.pop()
             sess.part3_index -= 1
             st.session_state.pop("p3_next_q", None)
             st.session_state.pop("p3_next_q_wav", None)
             sess.phase = "part3_idle"
-            st.rerun()
-    with col3:
-        if st.button("End Part 3", use_container_width=True):
-            sess.phase = "part3_summary"
             st.rerun()
 
 
@@ -213,6 +216,11 @@ def render_part3_summary() -> None:
             render_part_averages(evaluated)
 
     st.markdown("---")
-    if st.button("View Session Summary", type="primary", use_container_width=True):
+    if not p3_turns:
+        st.info("Record at least one answer to view your session summary.")
+        if st.button("Back to Part 3", use_container_width=True):
+            sess.phase = "part3_idle"
+            st.rerun()
+    elif st.button("View Session Summary", type="primary", use_container_width=True):
         sess.phase = "session_summary"
         st.rerun()

@@ -14,6 +14,31 @@ from core.listening.ui.scoring import score_answers, mask_line, QUESTION_TYPES
 _Q_TYPE_COLOR = "#7B5EA7"
 
 
+def _render_new_dialogue_confirm(label: str, button_type: str = "secondary", clear_scores: bool = False) -> None:
+    """Show a confirmation guard before resetting all dialogue state."""
+    if st.session_state.get("echo_confirm_new"):
+        st.warning("This will discard the current dialogue and all your answers. Confirm?")
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            if st.button("Yes, start over", use_container_width=True):
+                st.session_state["echo_phase"]    = "idle"
+                st.session_state["echo_dialogue"] = []
+                st.session_state["echo_masked"]   = []
+                st.session_state["echo_answers"]  = {}
+                if clear_scores:
+                    st.session_state["echo_scores"] = []
+                st.session_state.pop("echo_confirm_new", None)
+                st.rerun()
+        with cc2:
+            if st.button("Cancel", key="echo_cancel_new", use_container_width=True):
+                st.session_state.pop("echo_confirm_new", None)
+                st.rerun()
+    else:
+        if st.button(label, type=button_type, use_container_width=True):
+            st.session_state["echo_confirm_new"] = True
+            st.rerun()
+
+
 def render_idle(secrets: dict) -> None:
     st.markdown(
         "<h1 style='margin-bottom:4px'>🎧 Listening Practice</h1>"
@@ -203,7 +228,7 @@ def render_generating(secrets: dict) -> None:
             with placeholders[i].container():
                 _render_turn(i, line, m, mode, answers)
 
-        history = [{"speaker": t["speaker"], "text": t["text"]} for t in dialogue]
+        conversation_history = [{"speaker": t["speaker"], "text": t["text"]} for t in dialogue]
         _next = "B" if dialogue and dialogue[-1]["speaker"] == "A" else "A"
 
         for i in range(already_done, n_turns):
@@ -214,7 +239,7 @@ def render_generating(secrets: dict) -> None:
                     topic=topic,
                     speaker=speaker,
                     voice=voices[speaker],
-                    history=history,
+                    history=conversation_history,
                     api_key=secrets["gemini_api_key"],
                     model=secrets.get("live_model", LIVE_MODEL),
                     accent_instruction=accents[speaker],
@@ -226,11 +251,11 @@ def render_generating(secrets: dict) -> None:
 
             try:
                 m = mask_line(turn["text"], q_type=q_type)
-            except Exception:
+            except Exception:  # mask_line failure is non-critical; fall back to no-blank line
                 m = {"words": turn["text"].split(), "blanks": [], "q_type": q_type, "max_span": 1}
             dialogue.append(turn)
             masked.append(m)
-            history.append({"speaker": turn["speaker"], "text": turn["text"]})
+            conversation_history.append({"speaker": turn["speaker"], "text": turn["text"]})
 
             st.session_state["echo_dialogue"] = list(dialogue)
             st.session_state["echo_masked"]   = list(masked)
@@ -275,12 +300,7 @@ def _render_form(dialogue: list[dict], masked: list[dict], mode: str, answers: d
         st.session_state["echo_phase"]   = "submitted"
         st.rerun()
 
-    if st.button("↺ New Dialogue", use_container_width=True):
-        st.session_state["echo_phase"]    = "idle"
-        st.session_state["echo_dialogue"] = []
-        st.session_state["echo_masked"]   = []
-        st.session_state["echo_answers"]  = {}
-        st.rerun()
+    _render_new_dialogue_confirm("↺ New Dialogue")
 
 
 def render_submitted() -> None:
@@ -366,10 +386,4 @@ def render_submitted() -> None:
                 ]
             st.rerun()
     with col_new:
-        if st.button("▶ New Dialogue", type="primary", use_container_width=True):
-            st.session_state["echo_phase"]    = "idle"
-            st.session_state["echo_dialogue"] = []
-            st.session_state["echo_masked"]   = []
-            st.session_state["echo_answers"]  = {}
-            st.session_state["echo_scores"]   = []
-            st.rerun()
+        _render_new_dialogue_confirm("▶ New Dialogue", button_type="primary", clear_scores=True)

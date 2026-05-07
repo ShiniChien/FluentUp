@@ -171,7 +171,8 @@ def _render_admin() -> None:
     if "admin_users_cache" not in st.session_state:
         try:
             st.session_state["admin_users_cache"] = run_async(store.list_users()) if store else []
-        except Exception:
+        except Exception as e:
+            st.warning(f"Could not load user list: {e}")
             st.session_state["admin_users_cache"] = []
 
     users: list[dict] = st.session_state.get("admin_users_cache", [])

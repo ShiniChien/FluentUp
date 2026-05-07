@@ -56,14 +56,28 @@ def render_part2_idle() -> None:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Start Preparation", type="primary", use_container_width=True):
+            st.session_state.pop("p2_confirm_new_card", None)
             sess.prep_start_time = time.time()
             sess.phase = "part2_thinking"
             st.rerun()
     with col2:
-        if st.button("New Cue Card", use_container_width=True):
-            sess.part2_cue_card = None
-            sess.part2_topic = ""
-            st.rerun()
+        if st.session_state.get("p2_confirm_new_card"):
+            st.warning("This will discard the current cue card. Confirm?")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("Yes, discard", use_container_width=True):
+                    sess.part2_cue_card = None
+                    sess.part2_topic = ""
+                    st.session_state.pop("p2_confirm_new_card", None)
+                    st.rerun()
+            with cc2:
+                if st.button("Cancel", key="p2_cancel_new", use_container_width=True):
+                    st.session_state.pop("p2_confirm_new_card", None)
+                    st.rerun()
+        else:
+            if st.button("New Cue Card", use_container_width=True):
+                st.session_state["p2_confirm_new_card"] = True
+                st.rerun()
 
 
 @st.fragment(run_every=1)
@@ -228,11 +242,24 @@ def render_part2_result() -> None:
             sess.phase = "part3_loading"
             st.rerun()
     with col2:
-        if st.button("New Cue Card", use_container_width=True):
-            sess.part2_cue_card = None
-            sess.part2_topic = ""
-            sess.phase = "part2_idle"
-            st.rerun()
+        if st.session_state.get("p2_result_confirm_new"):
+            st.warning("Start a new cue card?")
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                if st.button("Yes", key="p2r_yes", use_container_width=True):
+                    sess.part2_cue_card = None
+                    sess.part2_topic = ""
+                    sess.phase = "part2_idle"
+                    st.session_state.pop("p2_result_confirm_new", None)
+                    st.rerun()
+            with rc2:
+                if st.button("Cancel", key="p2r_cancel", use_container_width=True):
+                    st.session_state.pop("p2_result_confirm_new", None)
+                    st.rerun()
+        else:
+            if st.button("New Cue Card", use_container_width=True):
+                st.session_state["p2_result_confirm_new"] = True
+                st.rerun()
     with col3:
         if st.button("Go to Summary", use_container_width=True):
             sess.phase = "session_summary"

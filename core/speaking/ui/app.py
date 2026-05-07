@@ -5,7 +5,7 @@ import streamlit as st
 from core.auth import current_user
 from core.models import UserProfile
 from core.shared import load_secrets
-from core.speaking.evaluator import LiveEvaluationPipeline
+from core.speaking.evaluator import SpeakingEvaluator
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
 
@@ -30,7 +30,7 @@ def _init_state(secrets: dict) -> None:
         st.session_state.session = ExamSession()
     if "evaluator" not in st.session_state:
         if secrets["gemini_api_key"]:
-            st.session_state.evaluator = LiveEvaluationPipeline(
+            st.session_state.evaluator = SpeakingEvaluator(
                 api_key=secrets["gemini_api_key"],
                 model=secrets["live_model"],
                 openrouter_base_url=secrets["openrouter_base_url"],
