@@ -262,7 +262,7 @@ def _render_app() -> None:
                 logout()
                 st.rerun()
 
-    _, col_speaking, col_gap, col_listening, col_gap2, col_chat, _ = st.columns([1, 3, 0.5, 3, 0.5, 3, 1])
+    _, col_speaking, _, col_listening, _, col_chat, _ = st.columns([1, 3, 0.5, 3, 0.5, 3, 1])
 
     with col_speaking:
         st.markdown(

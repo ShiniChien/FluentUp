@@ -133,7 +133,7 @@ def _fill_blank_inline(i: int, masked: dict, answers: dict) -> None:
     st.markdown(" ".join(parts))
 
     cols = st.columns(len(blanks)) if blanks else []
-    for j, (phrase, _s, _e) in enumerate(blanks):
+    for j in range(len(blanks)):
         with cols[j]:
             key = f"{i}_{j}"
             answers[key] = st.text_input(

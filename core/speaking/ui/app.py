@@ -9,7 +9,6 @@ from core.speaking.evaluator import SpeakingEvaluator
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
 
-from core.speaking.ui.helpers import clear_streaming_state
 from core.speaking.ui.sidebar import render_sidebar
 from core.speaking.ui.home import render_home
 from core.speaking.ui.part1 import render_part1_loading, render_part1_idle, render_part1_summary
