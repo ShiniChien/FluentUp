@@ -35,9 +35,10 @@ def hear_question(question: str, key: str) -> None:
                         wav = run_async(qgen.speak_question(question, accent=accent))
                         st.session_state[cache_key] = wav
                         st.session_state[played_key] = False
-                        st.rerun()
                     except Exception as e:
                         st.warning(f"TTS unavailable: {e}")
+                        return
+                st.rerun()
     else:
         if st.button("Hear question", key=key, use_container_width=True):
             with st.spinner("Generating audio..."):
