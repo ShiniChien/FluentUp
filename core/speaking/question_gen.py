@@ -180,5 +180,6 @@ class QuestionGenerator:
     ) -> bytes:
         """Return WAV bytes of the question spoken by the Gemini Live examiner voice."""
         system_instruction = ENGLISH_ACCENTS.get(accent, ENGLISH_ACCENTS[DEFAULT_ACCENT])
-        result = await self._live.run(text=text, voice=voice, system_instruction=system_instruction)
+        tts_input = f"Read the following text exactly as written, do not add or change anything:\n{text}"
+        result = await self._live.run(text=tts_input, voice=voice, system_instruction=system_instruction)
         return result.audio_wav

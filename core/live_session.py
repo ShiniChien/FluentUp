@@ -117,7 +117,7 @@ class GeminiLiveSession:
         """Run a single Gemini Live turn and return the result.
 
         Exactly one of `text` or `audio_wav` must be provided:
-          - text      → send_client_content (correct for text input)
+          - text      → send_realtime_input(text=...) — Live model's native text input
           - audio_wav → send_realtime_input with manual ActivityStart/End
 
         Retries on transient 1011/connection errors.
@@ -164,6 +164,9 @@ class GeminiLiveSession:
             response_modalities=[types.Modality.AUDIO],
             output_audio_transcription=types.AudioTranscriptionConfig(),
             thinking_config=types.ThinkingConfig(include_thoughts=thinking),
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
+            ),
         )
         if voice:
             cfg["speech_config"] = types.SpeechConfig(
@@ -173,10 +176,6 @@ class GeminiLiveSession:
             )
         if with_input_transcript:
             cfg["input_audio_transcription"] = types.AudioTranscriptionConfig()
-        if audio_wav is not None:
-            cfg["realtime_input_config"] = types.RealtimeInputConfig(
-                automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
-            )
         if system_instruction.strip():
             cfg["system_instruction"] = types.Content(
                 parts=[types.Part.from_text(text=system_instruction)]
@@ -186,10 +185,7 @@ class GeminiLiveSession:
             model=self._model, config=types.LiveConnectConfig(**cfg)
         ) as session:
             if text is not None:
-                await session.send_client_content(
-                    turns=types.Content(role="user", parts=[types.Part.from_text(text=text)]),
-                    turn_complete=True,
-                )
+                await session.send_realtime_input(text=text)
             else:
                 pcm = wav_to_pcm16k(audio_wav)  # type: ignore[arg-type]
                 await session.send_realtime_input(activity_start=types.ActivityStart())
