@@ -14,7 +14,7 @@ from core.speaking.prompts import (
     PART3_RANDOM_QUESTION_PROMPT,
 )
 from core.models import CueCard
-from core.live_session import gemini_live_speak, gemini_live_next_question
+from core.live_session import GeminiLiveSession
 from core.speaking.question_bank import pick_opening_question
 from core.viet_words import seed_words as _seed_words_shared
 from core.config import ENGLISH_ACCENTS
@@ -59,11 +59,10 @@ class QuestionGenerator:
         if not openrouter_model:
             raise ValueError("openrouter_model is required")
 
-        self._api_key    = api_key
-        self._live_model = live_model
-        self._or_base    = openrouter_base_url
-        self._or_key     = openrouter_api_key
-        self._or_model   = openrouter_model
+        self._live     = GeminiLiveSession(api_key, live_model)
+        self._or_base  = openrouter_base_url
+        self._or_key   = openrouter_api_key
+        self._or_model = openrouter_model
 
     async def _chat(self, prompt: str) -> str:
         return await async_chat(
@@ -86,8 +85,7 @@ class QuestionGenerator:
         accent: str = DEFAULT_ACCENT,
         profile: "UserProfile | None" = None,
     ) -> tuple[str, bytes]:
-        """Generate Q(n+1) dynamically from Q(n) text + audio of A(n).
-        Returns (question_text, question_wav)."""
+        """Generate Q(n+1) from Q(n) text + audio of A(n). Returns (text, wav)."""
         accent_instruction = ENGLISH_ACCENTS.get(accent, ENGLISH_ACCENTS[DEFAULT_ACCENT])
         profile_ctx = profile.prompt_context() if profile else ""
         context = ""
@@ -99,12 +97,8 @@ class QuestionGenerator:
             context=context,
             prev_question=prev_question,
         )
-        return await gemini_live_next_question(
-            api_key=self._api_key,
-            system_prompt=system_prompt,
-            answer_wav=answer_wav,
-            model=self._live_model,
-        )
+        result = await self._live.run(audio_wav=answer_wav, system_instruction=system_prompt)
+        return result.output_transcript, result.audio_wav
 
     async def generate_next_part3_question(
         self,
@@ -114,7 +108,7 @@ class QuestionGenerator:
         accent: str = DEFAULT_ACCENT,
         profile: "UserProfile | None" = None,
     ) -> tuple[str, bytes]:
-        """Generate the next Part 3 question from previous question text + audio of answer."""
+        """Generate next Part 3 question from previous question + audio of answer."""
         accent_instruction = ENGLISH_ACCENTS.get(accent, ENGLISH_ACCENTS[DEFAULT_ACCENT])
         profile_ctx = profile.prompt_context() if profile else ""
         context = ""
@@ -127,15 +121,10 @@ class QuestionGenerator:
             part2_topic=part2_topic or "a general topic",
             prev_question=prev_question,
         )
-        return await gemini_live_next_question(
-            api_key=self._api_key,
-            system_prompt=system_prompt,
-            answer_wav=answer_wav,
-            model=self._live_model,
-        )
+        result = await self._live.run(audio_wav=answer_wav, system_instruction=system_prompt)
+        return result.output_transcript, result.audio_wav
 
     async def generate_cue_card(self, profile: "UserProfile | None" = None) -> CueCard:
-        # Sample 1-3 Vietnamese seed words to diversify the topic
         seeds = _seed_words(random.randint(SEED_WORDS_MIN, SEED_WORDS_MAX))
         seed_hint = ""
         if seeds:
@@ -189,15 +178,7 @@ class QuestionGenerator:
         voice: str = DEFAULT_VOICE,
         accent: str = DEFAULT_ACCENT,
     ) -> bytes:
-        """Return WAV bytes of the question spoken by the Gemini Live examiner voice.
-
-        accent: one of 'us', 'uk', 'in', 'au' (see core/accents.py)
-        """
+        """Return WAV bytes of the question spoken by the Gemini Live examiner voice."""
         system_instruction = ENGLISH_ACCENTS.get(accent, ENGLISH_ACCENTS[DEFAULT_ACCENT])
-        return await gemini_live_speak(
-            api_key=self._api_key,
-            text=text,
-            voice=voice,
-            model=self._live_model,
-            system_instruction=system_instruction,
-        )
+        result = await self._live.run(text=text, voice=voice, system_instruction=system_instruction)
+        return result.audio_wav

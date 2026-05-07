@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from core.config import LIVE_MODEL
 from core.listening.prompts import SPEAKER_PERSONA
-from core.live_session import gemini_live_dialogue_turn
+from core.live_session import GeminiLiveSession
 
 
 async def generate_turn(
@@ -44,12 +44,10 @@ async def generate_turn(
             "Say your opening line."
         )
 
-    transcript, wav = await gemini_live_dialogue_turn(
-        api_key=api_key,
-        user_message=user_message,
+    live = GeminiLiveSession(api_key, model)
+    result = await live.run(
+        text=user_message,
         voice=voice,
-        model=model,
         system_instruction=system_instruction,
     )
-
-    return {"speaker": speaker, "text": transcript, "audio": wav}
+    return {"speaker": speaker, "text": result.output_transcript, "audio": result.audio_wav}

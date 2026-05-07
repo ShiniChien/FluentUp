@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from core.config import ENGLISH_ACCENTS, LIVE_MODEL
-from core.live_session import gemini_live_once, pcm_to_wav, OUTPUT_RATE
+from core.live_session import GeminiLiveSession
 from core.models import CriterionFeedback, EvaluationResult
 from core.speaking.prompts import get_examiner_prompt
 
@@ -12,8 +12,7 @@ _EVAL_TIMEOUT = 90.0  # seconds — longer than before because thinking adds lat
 
 class SpeakingEvaluator:
     def __init__(self, api_key: str, model: str = LIVE_MODEL, **_kwargs) -> None:
-        self._api   = api_key
-        self._model = model
+        self._live = GeminiLiveSession(api_key, model)
 
     async def evaluate(
         self,
@@ -31,23 +30,21 @@ class SpeakingEvaluator:
             accent_instruction=accent_instruction,
         )
         try:
-            input_tr, output_tr, audio_pcm = await asyncio.wait_for(
-                gemini_live_once(
-                    api_key=self._api,
-                    system_prompt=system_prompt,
-                    wav_bytes=audio_bytes,
-                    model=self._model,
+            result = await asyncio.wait_for(
+                self._live.run(
+                    audio_wav=audio_bytes,
+                    system_instruction=system_prompt,
                     thinking=True,
+                    with_input_transcript=True,
                 ),
                 timeout=_EVAL_TIMEOUT,
             )
-            wav = pcm_to_wav(audio_pcm, OUTPUT_RATE) if audio_pcm else b""
             feedback = CriterionFeedback(
                 criterion="Examiner",
-                feedback=output_tr,
-                audio=wav,
+                feedback=result.output_transcript,
+                audio=result.audio_wav,
             )
-            return EvaluationResult(transcript=input_tr, feedbacks=[feedback]), input_tr
+            return EvaluationResult(transcript=result.input_transcript, feedbacks=[feedback]), result.input_transcript
         except Exception as exc:
             feedback = CriterionFeedback(
                 criterion="Examiner",
