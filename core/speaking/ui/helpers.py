@@ -50,33 +50,27 @@ def hear_question(question: str, key: str) -> None:
 
 
 def render_question_blurred(html_content: str, uid: str) -> None:
-    """Render question HTML. If listening_mode, blur until clicked (CSS :focus, no JS)."""
+    """Render question HTML. If listening_mode, blur until clicked (JS inside component iframe)."""
     listening_mode = st.session_state.get("listening_mode", True)
     if not listening_mode:
         st.markdown(html_content, unsafe_allow_html=True)
         return
 
-    safe_uid = uid.replace("-", "_")
-    st.markdown(
+    import streamlit.components.v1 as components
+    text_color = st.get_option("theme.textColor") or (
+        "#fafafa" if st.get_option("theme.base") == "dark" else "#31333f"
+    )
+    components.html(
         f"""
         <style>
-          .qreveal_{safe_uid} {{
-            filter: blur(6px);
-            transition: filter .2s;
-            cursor: pointer;
-            outline: none;
-          }}
-          .qreveal_{safe_uid}:focus,
-          .qreveal_{safe_uid}:focus-within {{
-            filter: none;
-            cursor: default;
-          }}
+          body {{ margin: 0; background: transparent; color: {text_color}; font-family: sans-serif; }}
         </style>
-        <div class="qreveal_{safe_uid}" tabindex="0">
+        <div id="wrap" onclick="this.style.filter='none';this.style.cursor='default'"
+             style="filter:blur(6px);cursor:pointer;transition:filter .2s">
           {html_content}
         </div>
         """,
-        unsafe_allow_html=True,
+        height=120,
     )
 
 
