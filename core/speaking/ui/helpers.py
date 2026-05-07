@@ -49,6 +49,36 @@ def hear_question(question: str, key: str) -> None:
                     st.warning(f"TTS unavailable: {e}")
 
 
+def render_question_blurred(html_content: str, uid: str) -> None:
+    """Render question HTML. If listening_mode, blur it and reveal on click (pure client-side)."""
+    listening_mode = st.session_state.get("listening_mode", True)
+    if not listening_mode:
+        st.markdown(html_content, unsafe_allow_html=True)
+        return
+
+    st.markdown(
+        f"""
+        <div id="q-wrap-{uid}"
+             style="cursor:pointer;user-select:none"
+             onclick="
+               var el=document.getElementById('q-inner-{uid}');
+               el.style.filter='none';
+               el.style.cursor='default';
+               this.title='';
+             "
+             title="Click to reveal">
+          <div id="q-inner-{uid}" style="filter:blur(6px);transition:filter .2s">
+            {html_content.replace('<div ', '<div ').strip()}
+          </div>
+          <div style="text-align:center;font-size:.8em;color:#888;margin-top:4px">
+            🔒 Click to reveal question
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def seed_question_audio_cache(key: str, wav: bytes) -> None:
     """Pre-populate hear_question cache from a pre-generated wav so it won't re-generate."""
     cache_key = f"_q_audio_{key}"

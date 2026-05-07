@@ -12,7 +12,20 @@ from core.speaking.question_gen import QuestionGenerator
 from core.speaking.config import MIN_AUDIO_BYTES, SPEAK_WARN_SECONDS, SPEAK_ALERT_SECONDS
 from core.speaking.session import ExamSession, PREP_SECONDS, SPEAK_SECONDS
 from core.speaking.ui.eval import render_evaluation, render_streaming_eval
-from core.speaking.ui.helpers import clear_streaming_state, hear_question
+from core.speaking.ui.helpers import clear_streaming_state, hear_question, render_question_blurred
+
+
+
+def _render_cue_card(cue, uid: str) -> None:
+    html = (
+        f"<div style='border:2px solid #6A1B9A;border-radius:12px;padding:24px;font-size:1.1em;margin:16px 0'>"
+        f"<h3 style='color:#6A1B9A'>{cue.topic}</h3>"
+        f"<p><b>You should say:</b></p>"
+        f"<ul>{''.join(f'<li>{p}</li>' for p in cue.points)}</ul>"
+        f"<p><i>{cue.explain}</i></p>"
+        f"</div>"
+    )
+    render_question_blurred(html, uid=uid)
 
 
 def render_part2_idle() -> None:
@@ -42,33 +55,7 @@ def render_part2_idle() -> None:
 
     cue = sess.part2_cue_card
     cue_text = f"{cue.topic}. You should say: {', '.join(cue.points)}. {cue.explain}"
-    listening_mode = st.session_state.get("listening_mode", True)
-    show_key = "p2_show_cue"
-
-    if listening_mode:
-        if st.session_state.get(show_key, False):
-            st.markdown(
-                f"<div style='border:2px solid #6A1B9A;border-radius:12px;padding:24px;font-size:1.1em;margin:16px 0'>"
-                f"<h3 style='color:#6A1B9A'>{cue.topic}</h3>"
-                f"<p><b>You should say:</b></p>"
-                f"<ul>{''.join(f'<li>{p}</li>' for p in cue.points)}</ul>"
-                f"<p><i>{cue.explain}</i></p>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            st.button("Show cue card", key="p2_show_cue_btn", use_container_width=True,
-                      on_click=lambda: st.session_state.update({show_key: True}))
-    else:
-        st.markdown(
-            f"<div style='border:2px solid #6A1B9A;border-radius:12px;padding:24px;font-size:1.1em;margin:16px 0'>"
-            f"<h3 style='color:#6A1B9A'>{cue.topic}</h3>"
-            f"<p><b>You should say:</b></p>"
-            f"<ul>{''.join(f'<li>{p}</li>' for p in cue.points)}</ul>"
-            f"<p><i>{cue.explain}</i></p>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+    _render_cue_card(cue, uid="p2_intro")
 
     hear_question(cue_text, key="p2_cue_tts")
 
@@ -120,32 +107,7 @@ def render_part2_thinking() -> None:
     st.header("Part 2 — Preparation Time")
 
     if cue:
-        listening_mode = st.session_state.get("listening_mode", True)
-        show_key = "p2_show_cue"
-        if listening_mode:
-            if st.session_state.get(show_key, False):
-                st.markdown(
-                    f"<div style='border:2px solid #6A1B9A;"
-                    f"border-radius:12px;padding:20px;font-size:1.05em'>"
-                    f"<h3 style='color:#6A1B9A'>{cue.topic}</h3>"
-                    f"<ul>{''.join(f'<li>{p}</li>' for p in cue.points)}</ul>"
-                    f"<p><i>{cue.explain}</i></p>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.button("Show cue card", key="p2t_show_cue_btn", use_container_width=True,
-                          on_click=lambda: st.session_state.update({show_key: True}))
-        else:
-            st.markdown(
-                f"<div style='border:2px solid #6A1B9A;"
-                f"border-radius:12px;padding:20px;font-size:1.05em'>"
-                f"<h3 style='color:#6A1B9A'>{cue.topic}</h3>"
-                f"<ul>{''.join(f'<li>{p}</li>' for p in cue.points)}</ul>"
-                f"<p><i>{cue.explain}</i></p>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+        _render_cue_card(cue, uid="p2_thinking")
 
     _prep_countdown_fragment()
 
