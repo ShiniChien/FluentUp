@@ -58,7 +58,7 @@ def render_question_blurred(html_content: str, uid: str) -> None:
 
     # CSS checkbox hack: clicking the label toggles the checkbox → :checked removes blur
     safe_uid = uid.replace("-", "_")
-    st.markdown(
+    st.html(
         f"""
         <style>
           #qcb_{safe_uid} {{ display: none; }}
@@ -70,8 +70,7 @@ def render_question_blurred(html_content: str, uid: str) -> None:
             {html_content}
           </div>
         </label>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
