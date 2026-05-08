@@ -7,6 +7,7 @@ import os
 import random
 from typing import Any
 
+import requests as requests_lib
 from google.oauth2 import service_account
 from googleapiclient.discovery import build as google_build
 
@@ -162,3 +163,43 @@ def create_quiz_form(
     ).execute()
 
     return f"https://docs.google.com/forms/d/{form_id}/viewform"
+
+
+def fetch_all_vocab(mongo_uri: str) -> tuple[list[dict], dict[str, list[dict]]]:
+    """Fetch all vocabulary from MongoDB.
+
+    Returns:
+        global_pool: all vocab docs (for MC distractors)
+        per_user: {username: [vocab docs]} mapping
+    """
+    from pymongo import MongoClient
+
+    client = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)
+    db = client["fluentup"]
+    all_docs = list(db["vocabulary"].find({}, {"_id": 0, "word": 1, "notes": 1, "user_id": 1}))
+    client.close()
+
+    per_user: dict[str, list[dict]] = {}
+    for doc in all_docs:
+        uid = doc["user_id"]
+        per_user.setdefault(uid, []).append(doc)
+
+    return all_docs, per_user
+
+
+def fetch_users(mongo_uri: str) -> list[str]:
+    """Return list of usernames from MongoDB users collection."""
+    from pymongo import MongoClient
+
+    client = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)
+    db = client["fluentup"]
+    users = list(db["users"].find({}, {"_id": 0, "username": 1}))
+    client.close()
+    return [u["username"] for u in users]
+
+
+def send_discord(webhook_url: str, message: str) -> None:
+    """POST message to Discord webhook."""
+    resp = requests_lib.post(webhook_url, json={"content": message}, timeout=10)
+    resp.raise_for_status()
+

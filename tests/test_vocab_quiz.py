@@ -118,3 +118,23 @@ def test_build_form_body_multiple_choice_has_options():
     assert len(option_values) == 4
     grading = item["questionItem"]["question"]["grading"]
     assert grading["correctAnswers"]["answers"][0]["value"] == "buồn"
+
+
+from unittest.mock import patch, MagicMock
+from scripts.vocab_quiz import send_discord
+
+
+def test_send_discord_posts_correct_payload():
+    with patch("scripts.vocab_quiz.requests_lib") as mock_requests:
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_requests.post.return_value = mock_resp
+
+        send_discord("https://discord.webhook/test", "Hello world")
+
+        mock_requests.post.assert_called_once_with(
+            "https://discord.webhook/test",
+            json={"content": "Hello world"},
+            timeout=10,
+        )
+        mock_resp.raise_for_status.assert_called_once()
