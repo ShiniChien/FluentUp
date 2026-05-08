@@ -53,3 +53,58 @@ def build_question(
         "correct_answer": correct_answer,
         "choices": choices,
     }
+
+
+def build_form_body(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert question dicts to Google Forms API batchUpdate request list."""
+    requests = []
+    for idx, q in enumerate(questions):
+        if q["type"] == "SHORT_ANSWER":
+            item = {
+                "title": q["question_text"],
+                "questionItem": {
+                    "question": {
+                        "required": True,
+                        "grading": {
+                            "pointValue": 1,
+                            "correctAnswers": {
+                                "answers": [{"value": q["correct_answer"]}]
+                            },
+                            "whenRight": {"text": "Correct!"},
+                            "whenWrong": {"text": f"Correct answer: {q['correct_answer']}"},
+                        },
+                        "textQuestion": {"paragraph": False},
+                    }
+                },
+            }
+        else:  # MULTIPLE_CHOICE
+            item = {
+                "title": q["question_text"],
+                "questionItem": {
+                    "question": {
+                        "required": True,
+                        "grading": {
+                            "pointValue": 1,
+                            "correctAnswers": {
+                                "answers": [{"value": q["correct_answer"]}]
+                            },
+                            "whenRight": {"text": "Correct!"},
+                            "whenWrong": {"text": f"Correct answer: {q['correct_answer']}"},
+                        },
+                        "choiceQuestion": {
+                            "type": "RADIO",
+                            "options": [{"value": c} for c in q["choices"]],
+                            "shuffle": False,
+                        },
+                    }
+                },
+            }
+
+        requests.append({
+            "createItem": {
+                "item": item,
+                "location": {"index": idx},
+            }
+        })
+
+    return requests
