@@ -21,3 +21,55 @@ GLOBAL_POOL = SAMPLE_WORDS + [
     {"word": "fast", "notes": "nhanh"},
     {"word": "slow", "notes": "chậm"},
 ]
+
+from scripts.vocab_quiz import build_question
+
+
+def test_short_answer_en_to_vi():
+    random.seed(0)
+    entry = {"word": "happy", "notes": "vui vẻ"}
+    q = build_question(entry, GLOBAL_POOL, force_type="en_vi")
+    assert q["type"] == "SHORT_ANSWER"
+    assert q["question_text"] == "happy"
+    assert q["correct_answer"] == "vui vẻ"
+    assert q["choices"] is None
+
+
+def test_short_answer_vi_to_en():
+    entry = {"word": "happy", "notes": "vui vẻ"}
+    q = build_question(entry, GLOBAL_POOL, force_type="vi_en")
+    assert q["type"] == "SHORT_ANSWER"
+    assert q["question_text"] == "vui vẻ"
+    assert q["correct_answer"] == "happy"
+    assert q["choices"] is None
+
+
+def test_multiple_choice_has_4_choices():
+    random.seed(42)
+    entry = {"word": "happy", "notes": "vui vẻ"}
+    q = build_question(entry, GLOBAL_POOL, force_type="multiple_choice")
+    assert q["type"] == "MULTIPLE_CHOICE"
+    assert len(q["choices"]) == 4
+    assert q["correct_answer"] in q["choices"]
+
+
+def test_multiple_choice_correct_not_in_distractors():
+    random.seed(42)
+    entry = {"word": "happy", "notes": "vui vẻ"}
+    q = build_question(entry, GLOBAL_POOL, force_type="multiple_choice")
+    correct = q["correct_answer"]
+    others = [c for c in q["choices"] if c != correct]
+    assert correct not in others
+
+
+def test_multiple_choice_small_pool():
+    """Pool nhỏ hơn 3 distractors vẫn hoạt động."""
+    small_pool = [
+        {"word": "happy", "notes": "vui vẻ"},
+        {"word": "sad", "notes": "buồn"},
+    ]
+    entry = {"word": "happy", "notes": "vui vẻ"}
+    q = build_question(entry, small_pool, force_type="multiple_choice")
+    assert q["type"] == "MULTIPLE_CHOICE"
+    assert len(q["choices"]) >= 1
+    assert q["correct_answer"] in q["choices"]
