@@ -26,12 +26,30 @@ Service account: `shinichien@shinichien.iam.gserviceaccount.com` (project `shini
 
 1. Kết nối MongoDB, lấy danh sách tất cả users từ collection `users`
 2. Bỏ qua user `root` (hardcoded, không có trong MongoDB)
-3. Với mỗi user:
-   - Random sample tối đa 20 từ từ collection `vocabulary` (field `word` = tiếng Anh, `notes` = tiếng Việt)
+3. Fetch **global pool**: toàn bộ documents từ collection `vocabulary` của tất cả users (dùng làm distractors cho multiple choice)
+4. Với mỗi user:
+   - Lấy tất cả từ của user đó, random sample tối đa 20 từ làm câu hỏi
    - Nếu user có ít hơn 20 từ, lấy tất cả
    - Bỏ qua user không có từ nào
+   - Với mỗi trong 20 câu, chọn loại câu hỏi theo weighted random (xem bên dưới)
    - Gọi Google Forms API tạo quiz form
-4. Gửi 1 Discord message tổng hợp tất cả link
+5. Gửi 1 Discord message tổng hợp tất cả link
+
+## Loại Câu Hỏi
+
+Mỗi câu trong form được chọn ngẫu nhiên với **weights [6, 1, 3]**:
+
+| Weight | Loại | Mô tả |
+|--------|------|-------|
+| 6 | **Anh → Việt** (short-answer) | Hiện `word` (tiếng Anh), điền `notes` (tiếng Việt) |
+| 1 | **Việt → Anh** (short-answer) | Hiện `notes` (tiếng Việt), điền `word` (tiếng Anh) |
+| 3 | **Multiple choice** | 50-50 random chiều Anh→Việt hoặc Việt→Anh, chọn 1/4 đáp án |
+
+**Thuật toán Multiple Choice:**
+- Chiều hỏi: random 50-50 (Anh→Việt hoặc Việt→Anh)
+- 1 đáp án đúng từ từ đang hỏi
+- 3 distractors: sample ngẫu nhiên từ **global pool** (tất cả `notes` hoặc tất cả `word` tùy chiều), loại trừ đáp án đúng
+- Shuffle 4 lựa chọn trước khi đưa vào form
 
 ## Google Forms API
 
@@ -41,9 +59,9 @@ Service account: `shinichien@shinichien.iam.gserviceaccount.com` (project `shini
 
 **Flow tạo form:**
 1. `forms().create()` — tạo form với title `"Vocabulary Quiz - {username} - {YYYY-MM-DD}"`
-2. `forms().batchUpdate()` — set `isQuiz: true`, thêm 20 câu short-answer:
-   - Question text: từ tiếng Anh (`word`)
-   - Answer key: `notes` (tiếng Việt), case-insensitive match, 1 điểm/câu
+2. `forms().batchUpdate()` — set `isQuiz: true`, thêm 20 câu (mix short-answer + multiple choice):
+   - Short-answer: answer key case-insensitive, 1 điểm/câu
+   - Multiple choice: đánh dấu đúng 1 trong 4 lựa chọn, 1 điểm/câu
    - Quiz settings: show score + correct answers immediately after submit
 3. `drive().permissions().create()` — set `anyone` + `reader` để form public
 
