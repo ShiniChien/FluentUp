@@ -203,3 +203,44 @@ def send_discord(webhook_url: str, message: str) -> None:
     resp = requests_lib.post(webhook_url, json={"content": message}, timeout=10)
     resp.raise_for_status()
 
+
+def main() -> None:
+    mongo_uri = os.environ["MONGODB_URI"]
+    webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
+    credentials = _get_google_credentials()
+
+    print("Fetching vocabulary from MongoDB...")
+    global_pool, per_user = fetch_all_vocab(mongo_uri)
+    usernames = fetch_users(mongo_uri)
+
+    now_ict = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
+    header = f"📚 Vocabulary Quiz - {now_ict.strftime('%Y-%m-%d %H:%M')} ICT"
+    lines = [header]
+
+    for username in usernames:
+        user_vocab = per_user.get(username, [])
+        if not user_vocab:
+            print(f"  Skipping {username}: no vocabulary")
+            continue
+
+        sample = random.sample(user_vocab, min(20, len(user_vocab)))
+        questions = [build_question(entry, global_pool) for entry in sample]
+
+        try:
+            form_url = create_quiz_form(username, questions, credentials)
+            lines.append(f"• {username}: {form_url}")
+            print(f"  Created form for {username}: {form_url}")
+        except Exception as exc:
+            print(f"  ERROR creating form for {username}: {exc}")
+
+    if len(lines) == 1:
+        print("No forms created, skipping Discord notification.")
+        return
+
+    send_discord(webhook_url, "\n".join(lines))
+    print("Discord notification sent.")
+
+
+if __name__ == "__main__":
+    main()
+
