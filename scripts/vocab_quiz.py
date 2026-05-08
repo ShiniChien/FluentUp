@@ -21,8 +21,11 @@ _SCOPES = [
 
 
 def _get_google_credentials() -> service_account.Credentials:
-    sa_json = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
-    sa_info = json.loads(sa_json)
+    # Support file path (private repo) or JSON string (GitHub Secrets)
+    key_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_FILE")
+    if key_file:
+        return service_account.Credentials.from_service_account_file(key_file, scopes=_SCOPES)
+    sa_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
     return service_account.Credentials.from_service_account_info(sa_info, scopes=_SCOPES)
 
 
@@ -165,16 +168,16 @@ def create_quiz_form(
     return f"https://docs.google.com/forms/d/{form_id}/viewform"
 
 
-def fetch_all_vocab(mongo_uri: str) -> tuple[list[dict], dict[str, list[dict]]]:
-    """Fetch all vocabulary from MongoDB.
-
-    Returns:
-        global_pool: all vocab docs (for MC distractors)
-        per_user: {username: [vocab docs]} mapping
-    """
+def fetch_all_vocab(mongo_uri: str, username: str = "", password: str = "") -> tuple[list[dict], dict[str, list[dict]]]:
+    """Fetch all vocabulary from MongoDB."""
     from pymongo import MongoClient
 
-    client = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)
+    client = MongoClient(
+        mongo_uri,
+        username=username or None,
+        password=password or None,
+        serverSelectionTimeoutMS=10000,
+    )
     db = client["fluentup"]
     all_docs = list(db["vocabulary"].find({}, {"_id": 0, "word": 1, "notes": 1, "user_id": 1}))
     client.close()
@@ -187,11 +190,16 @@ def fetch_all_vocab(mongo_uri: str) -> tuple[list[dict], dict[str, list[dict]]]:
     return all_docs, per_user
 
 
-def fetch_users(mongo_uri: str) -> list[str]:
+def fetch_users(mongo_uri: str, username: str = "", password: str = "") -> list[str]:
     """Return list of usernames from MongoDB users collection."""
     from pymongo import MongoClient
 
-    client = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)
+    client = MongoClient(
+        mongo_uri,
+        username=username or None,
+        password=password or None,
+        serverSelectionTimeoutMS=10000,
+    )
     db = client["fluentup"]
     users = list(db["users"].find({}, {"_id": 0, "username": 1}))
     client.close()
@@ -206,14 +214,16 @@ def send_discord(webhook_url: str, message: str) -> None:
 
 def main() -> None:
     mongo_uri = os.environ["MONGODB_URI"]
+    mongo_user = os.environ.get("MONGODB_USERNAME", "")
+    mongo_pass = os.environ.get("MONGODB_PASSWORD", "")
     webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
     credentials = _get_google_credentials()
 
     print("Fetching vocabulary from MongoDB...")
-    global_pool, per_user = fetch_all_vocab(mongo_uri)
-    usernames = fetch_users(mongo_uri)
+    global_pool, per_user = fetch_all_vocab(mongo_uri, mongo_user, mongo_pass)
+    usernames = fetch_users(mongo_uri, mongo_user, mongo_pass)
 
-    now_ict = datetime.datetime.utcnow() + datetime.timedelta(hours=7)
+    now_ict = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=7)
     header = f"📚 Vocabulary Quiz - {now_ict.strftime('%Y-%m-%d %H:%M')} ICT"
     lines = [header]
 
