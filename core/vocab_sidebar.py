@@ -54,11 +54,28 @@ def _render_entry_list(entries: list[dict], store) -> None:
 
 @st.dialog("📖 Từ điển cá nhân", width="large")
 def _vocab_dialog(store, user_id: str) -> None:
+    # ── Auto-translate on query change ────────────────────────────────────────
+    def _on_query_change() -> None:
+        q = st.session_state.get("vd_query", "").strip()
+        if not q or not _is_valid_regex(q):
+            return
+        try:
+            existing = run_async(store.search_vocab(user_id=user_id, query=q))
+        except Exception:
+            existing = []
+        if _is_duplicate(q, existing):
+            return
+        try:
+            st.session_state["vd_notes"] = run_async(_translate_to_vi(q))
+        except Exception:
+            pass
+
     # ── Combined search / new-word input ──────────────────────────────────────
     query = st.text_input(
         "Từ / cụm từ",
         placeholder="Nhập để tìm kiếm hoặc thêm từ mới…",
         key="vd_query",
+        on_change=_on_query_change,
     )
 
     # ── Fetch from Mongo on every render ─────────────────────────────────────
@@ -98,33 +115,38 @@ def _vocab_dialog(store, user_id: str) -> None:
         elif _is_valid_regex(q):
             st.caption("Không tìm thấy từ nào khớp.")
 
-    # ── Add new section ───────────────────────────────────────────────────────
+    # ── Add / edit section ────────────────────────────────────────────────────
     if q:
         st.divider()
-        st.markdown("##### Thêm mới")
 
-        if st.button("🔍 Dịch sang tiếng Việt", use_container_width=True):
-            with st.spinner("Đang dịch…"):
+        dup_entry = next((e for e in entries if e.get("word", "").lower() == q.lower()), None)
+
+        if dup_entry:
+            st.markdown("##### Chỉnh sửa")
+            if "vd_notes" not in st.session_state:
+                st.session_state["vd_notes"] = dup_entry.get("notes", "")
+            notes = st.text_input("Ghi chú / nghĩa", placeholder="nghĩa, ví dụ…", key="vd_notes")
+            if st.button("✏️ Cập nhật", type="primary", use_container_width=True):
                 try:
-                    translation = run_async(_translate_to_vi(q))
-                    st.session_state["vd_notes"] = translation
+                    run_async(store.update_vocab(dup_entry["_id"], notes))
+                    st.session_state.pop("vd_notes", None)
+                    st.session_state.pop("vd_query", None)
+                    st.session_state["_vocab_dialog_open"] = True
+                    st.rerun()
                 except Exception as exc:
-                    st.error(f"Dịch thất bại: {exc}")
-
-        notes = st.text_input("Ghi chú / nghĩa", placeholder="nghĩa, ví dụ…", key="vd_notes")
-
-        is_dup = _is_duplicate(q, entries)
-        if is_dup:
-            st.warning(f'"{q}" đã có trong từ điển.')
-
-        if st.button("💾 Lưu từ", type="primary", use_container_width=True, disabled=is_dup):
-            try:
-                run_async(store.save_vocab(q, notes.strip(), user_id=user_id))
-                st.session_state.pop("vd_notes", None)
-                st.session_state.pop("vd_query", None)
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Lưu thất bại: {exc}")
+                    st.error(f"Cập nhật thất bại: {exc}")
+        else:
+            st.markdown("##### Thêm mới")
+            notes = st.text_input("Ghi chú / nghĩa", placeholder="nghĩa, ví dụ…", key="vd_notes")
+            if st.button("💾 Lưu từ", type="primary", use_container_width=True):
+                try:
+                    run_async(store.save_vocab(q, notes.strip(), user_id=user_id))
+                    st.session_state.pop("vd_notes", None)
+                    st.session_state.pop("vd_query", None)
+                    st.session_state["_vocab_dialog_open"] = True
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Lưu thất bại: {exc}")
 
 
 # ── Sidebar button ────────────────────────────────────────────────────────────
@@ -133,8 +155,13 @@ def render_vocab_sidebar(store) -> None:
     if not is_logged_in():
         return
 
+    user_id = (current_user() or {}).get("_id", "default")
+
     st.sidebar.markdown("---")
     if st.sidebar.button("📖 Từ điển cá nhân", use_container_width=True, shortcut="Alt+V"):
-        user_id = (current_user() or {}).get("_id", "default")
+        st.session_state["_vocab_dialog_open"] = True
+
+    if st.session_state.get("_vocab_dialog_open"):
+        st.session_state["_vocab_dialog_open"] = False
         _vocab_dialog(store, user_id)
 

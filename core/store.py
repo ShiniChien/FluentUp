@@ -92,6 +92,13 @@ class FluentUpStore:
         result = await self._vocabulary.delete_one({"_id": ObjectId(entry_id)})
         return result.deleted_count > 0
 
+    async def update_vocab(self, entry_id: str, notes: str) -> bool:
+        result = await self._vocabulary.update_one(
+            {"_id": ObjectId(entry_id)},
+            {"$set": {"notes": notes.strip()}},
+        )
+        return result.modified_count > 0
+
     # ── User account CRUD ─────────────────────────────────────────────────────
 
     async def get_user_by_username(self, username: str) -> dict | None:
