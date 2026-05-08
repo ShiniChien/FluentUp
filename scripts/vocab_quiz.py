@@ -1,12 +1,28 @@
 # scripts/vocab_quiz.py
 from __future__ import annotations
 
+import datetime
+import json
+import os
 import random
 from typing import Any
 
+from google.oauth2 import service_account
+from googleapiclient.discovery import build as google_build
 
 _QUESTION_TYPES = ["en_vi", "vi_en", "multiple_choice"]
 _WEIGHTS = [6, 1, 3]
+
+_SCOPES = [
+    "https://www.googleapis.com/auth/forms.body",
+    "https://www.googleapis.com/auth/drive.file",
+]
+
+
+def _get_google_credentials() -> service_account.Credentials:
+    sa_json = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
+    sa_info = json.loads(sa_json)
+    return service_account.Credentials.from_service_account_info(sa_info, scopes=_SCOPES)
 
 
 def build_question(
@@ -108,3 +124,41 @@ def build_form_body(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         })
 
     return requests
+
+
+def create_quiz_form(
+    username: str,
+    questions: list[dict[str, Any]],
+    credentials: service_account.Credentials,
+) -> str:
+    """Create a Google Form quiz. Returns the form's viewform URL."""
+    forms_service = google_build("forms", "v1", credentials=credentials)
+    drive_service = google_build("drive", "v3", credentials=credentials)
+
+    date_str = datetime.date.today().isoformat()
+
+    form = forms_service.forms().create(body={
+        "info": {"title": f"Vocabulary Quiz - {username} - {date_str}"}
+    }).execute()
+    form_id = form["formId"]
+
+    requests_payload = [
+        {
+            "updateSettings": {
+                "settings": {"quizSettings": {"isQuiz": True}},
+                "updateMask": "quizSettings.isQuiz",
+            }
+        }
+    ] + build_form_body(questions)
+
+    forms_service.forms().batchUpdate(
+        formId=form_id,
+        body={"requests": requests_payload},
+    ).execute()
+
+    drive_service.permissions().create(
+        fileId=form_id,
+        body={"type": "anyone", "role": "reader"},
+    ).execute()
+
+    return f"https://docs.google.com/forms/d/{form_id}/viewform"
