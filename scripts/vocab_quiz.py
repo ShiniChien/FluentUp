@@ -190,8 +190,8 @@ def fetch_all_vocab(mongo_uri: str, username: str = "", password: str = "") -> t
     return all_docs, per_user
 
 
-def fetch_users(mongo_uri: str, username: str = "", password: str = "") -> list[str]:
-    """Return list of usernames from MongoDB users collection."""
+def fetch_users(mongo_uri: str, username: str = "", password: str = "") -> list[dict]:
+    """Return list of users (with _id and username) from MongoDB users collection."""
     from pymongo import MongoClient
 
     client = MongoClient(
@@ -201,9 +201,9 @@ def fetch_users(mongo_uri: str, username: str = "", password: str = "") -> list[
         serverSelectionTimeoutMS=10000,
     )
     db = client["fluentup"]
-    users = list(db["users"].find({}, {"_id": 0, "username": 1}))
+    users = list(db["users"].find({}, {"username": 1}))
     client.close()
-    return [u["username"] for u in users]
+    return [{"id": str(u["_id"]), "username": u["username"]} for u in users]
 
 
 def send_discord(webhook_url: str, message: str) -> None:
@@ -221,14 +221,15 @@ def main() -> None:
 
     print("Fetching vocabulary from MongoDB...")
     global_pool, per_user = fetch_all_vocab(mongo_uri, mongo_user, mongo_pass)
-    usernames = fetch_users(mongo_uri, mongo_user, mongo_pass)
+    users = fetch_users(mongo_uri, mongo_user, mongo_pass)
 
     now_ict = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=7)
     header = f"📚 Vocabulary Quiz - {now_ict.strftime('%Y-%m-%d %H:%M')} ICT"
     lines = [header]
 
-    for username in usernames:
-        user_vocab = per_user.get(username, [])
+    for user in users:
+        username = user["username"]
+        user_vocab = per_user.get(user["id"], [])
         if not user_vocab:
             print(f"  Skipping {username}: no vocabulary")
             continue
