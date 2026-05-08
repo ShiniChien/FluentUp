@@ -237,7 +237,9 @@ def main() -> None:
         print("No forms created, skipping Discord notification.")
         return
 
-    send_discord(webhook_url, "\n".join(lines))
+    message = "\n".join(lines)
+    print(message)
+    send_discord(webhook_url, message)
     print("Discord notification sent.")
 
 
