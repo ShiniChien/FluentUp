@@ -9,8 +9,25 @@ on:
 jobs:
   send-quiz:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+
+      - name: Checkout gh-pages (for existing quiz files)
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: .gh-pages
+        continue-on-error: true
+
+      - name: Restore existing quiz files
+        run: |
+          mkdir -p quiz
+          if [ -d .gh-pages/quiz ]; then
+            cp -r .gh-pages/quiz/. quiz/
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,6 +42,14 @@ jobs:
           MONGODB_URI: "mongodb://10.8.28.45:27017/"
           MONGODB_USERNAME: ""
           MONGODB_PASSWORD: ""
-          GOOGLE_SERVICE_ACCOUNT_KEY_FILE: "scripts/shinichien-0bc21ed9f8c7.json"
           DISCORD_WEBHOOK_URL: "DISCORD_WEBHOOK_PLACEHOLDER"
+          QUIZ_DIR: quiz
         run: python scripts/vocab_quiz.py
+
+      - name: Deploy quiz to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./quiz
+          destination_dir: quiz
+          keep_files: true
