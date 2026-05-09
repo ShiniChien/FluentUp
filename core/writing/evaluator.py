@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 
 import streamlit as st
@@ -36,11 +37,10 @@ def _first_criterion_name(task_type: str) -> str:
 
 def _parse_response(raw: str) -> dict:
     text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    return json.loads(text.strip())
+    m = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if m:
+        text = m.group(1).strip()
+    return json.loads(text)
 
 
 def _overall_band(bands: list[float]) -> float:
@@ -82,7 +82,9 @@ async def _evaluate_async(secrets: dict, task_type: str, topic: dict, essay: str
 
 def start_evaluation(secrets: dict, task_type: str, topic: dict, essay: str) -> None:
     """Launch evaluation in a daemon thread; writes result to session_state."""
+    import time
     st.session_state["writing_eval_result"] = None
+    st.session_state["writing_eval_started_at"] = time.time()
 
     def _run():
         try:
