@@ -5,7 +5,7 @@ import time
 import streamlit as st
 
 from core.async_utils import run_async
-from core.shared import load_secrets, get_store
+from core.shared import load_secrets, get_store, get_text_provider
 from core.writing.topic_pool import get_topic
 from core.writing.ui.state import init_state
 from core.writing.ui.task1 import render_task1
@@ -75,7 +75,7 @@ def _render_generating(secrets, store) -> None:
     with st.spinner("Đang tạo đề..."):
         task_type = st.session_state["writing_task_type"]
         try:
-            topic = run_async(get_topic(store, task_type, secrets))
+            topic = run_async(get_topic(store, task_type, get_text_provider(secrets)))
             st.session_state["writing_topic"] = topic
             st.session_state["writing_phase"] = "writing"
             st.rerun()

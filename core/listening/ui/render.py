@@ -5,6 +5,7 @@ import random
 import streamlit as st
 
 from core.config import LIVE_MODEL, VOICES, ENGLISH_ACCENTS
+from core.shared import get_text_provider
 from core.listening.config import LISTENING_TURNS_MIN, LISTENING_TURNS_MAX, SPEAKER_COLORS
 from core.async_utils import run_async
 from core.viet_words import generate_topic
@@ -61,22 +62,14 @@ def render_idle(secrets: dict) -> None:
     with col_right:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         if st.button("✨ Generate topic", use_container_width=True):
-            or_base = secrets.get("openrouter_base_url", "")
-            or_key  = secrets.get("openrouter_api_key", "")
-            or_model = secrets.get("openrouter_model", "")
-            if not (or_base and or_key and or_model):
-                st.error("OpenRouter credentials not configured.")
-            else:
-                with st.spinner("Generating topic…"):
-                    try:
-                        new_topic = run_async(generate_topic(
-                            openrouter_base_url=or_base,
-                            openrouter_api_key=or_key,
-                            openrouter_model=or_model,
-                        ))
-                        st.session_state["echo_topic"] = new_topic
-                    except Exception as exc:
-                        st.error(f"Failed to generate topic: {exc}")
+            with st.spinner("Generating topic…"):
+                try:
+                    new_topic = run_async(generate_topic(
+                        provider=get_text_provider(secrets),
+                    ))
+                    st.session_state["echo_topic"] = new_topic
+                except Exception as exc:
+                    st.error(f"Failed to generate topic: {exc}")
             st.rerun()
 
     mode = st.radio(
