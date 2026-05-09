@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import re
 from datetime import datetime, timezone
 
 from core.text_provider import TextProvider
@@ -54,9 +55,17 @@ def _round_band(value: float) -> float:
     return math.floor(value * 2 + 0.5) / 2
 
 
+def _extract_json(raw: str) -> str:
+    m = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    start = raw.find("{")
+    return raw[start:] if start != -1 else raw
+
+
 async def _generate_task1(provider: TextProvider) -> dict:
     raw = await provider.chat(_TASK1_SYSTEM, temperature=0.9)
-    data = json.loads(raw)
+    data = json.loads(_extract_json(raw))
     return {
         "task_type":  "task1",
         "prompt":     data["prompt"],
@@ -67,7 +76,7 @@ async def _generate_task1(provider: TextProvider) -> dict:
 
 async def _generate_task2(provider: TextProvider) -> dict:
     raw = await provider.chat(_TASK2_SYSTEM, temperature=0.9)
-    data = json.loads(raw)
+    data = json.loads(_extract_json(raw))
     return {
         "task_type":  "task2",
         "prompt":     data["prompt"],

@@ -84,3 +84,4 @@ def set_text_provider(name: str, secrets: dict) -> None:
     """Switch active provider; clears cached instance so next call rebuilds."""
     st.session_state[_PROVIDER_KEY] = name
     st.session_state.pop(_PROVIDER_OBJ_KEY, None)
+    st.session_state.pop("question_gen", None)
