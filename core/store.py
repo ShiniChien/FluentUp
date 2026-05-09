@@ -36,6 +36,7 @@ class FluentUpStore:
         self._vocabulary = db["vocabulary"]
         self._users = db["users"]
         self._part2_attempts = db["speaking_part2"]
+        self._settings = db["settings"]
 
     async def ensure_indexes(self) -> None:
         await self._vocabulary.create_index("user_id", background=True)
@@ -159,6 +160,18 @@ class FluentUpStore:
         result = await self._users.delete_one({"_id": ObjectId(user_id)})
         return result.deleted_count > 0
 
+    # ── Provider config ───────────────────────────────────────────────────────
+
+    async def get_provider_config(self) -> dict | None:
+        return await self._settings.find_one({"_id": "config"})
+
+    async def save_provider_config(self, active: str, providers: dict) -> None:
+        await self._settings.update_one(
+            {"_id": "config"},
+            {"$set": {"active_provider": active, "providers": providers}},
+            upsert=True,
+        )
+
     # ── Part 2 attempts ───────────────────────────────────────────────────────
 
     async def save_part2_attempt(
@@ -181,7 +194,6 @@ class FluentUpStore:
         return str(result.inserted_id)
 
     async def get_part2_attempts(
-        self, user_id: str, limit: int = 20
     ) -> list[dict]:
         cursor = self._part2_attempts.find(
             {"user_id": user_id},
