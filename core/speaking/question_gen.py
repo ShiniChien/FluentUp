@@ -5,7 +5,7 @@ import random
 import re
 from typing import TYPE_CHECKING
 
-from core.openrouter import async_chat
+from core.text_provider import TextProvider
 from core.speaking.prompts import (
     CUE_CARD_PROMPT,
     NEXT_QUESTION_SYSTEM,
@@ -46,31 +46,16 @@ class QuestionGenerator:
         self,
         api_key: str,
         live_model: str,
-        openrouter_base_url: str,
-        openrouter_api_key: str,
-        openrouter_model: str,
+        provider: TextProvider,
     ):
         if not live_model:
             raise ValueError("live_model is required")
-        if not openrouter_base_url:
-            raise ValueError("openrouter_base_url is required")
-        if not openrouter_api_key:
-            raise ValueError("openrouter_api_key is required")
-        if not openrouter_model:
-            raise ValueError("openrouter_model is required")
 
         self._live     = GeminiLiveSession(api_key, live_model)
-        self._or_base  = openrouter_base_url
-        self._or_key   = openrouter_api_key
-        self._or_model = openrouter_model
+        self._provider = provider
 
     async def _chat(self, prompt: str) -> str:
-        return await async_chat(
-            base_url=self._or_base,
-            api_key=self._or_key,
-            model=self._or_model,
-            prompt=prompt,
-        )
+        return await self._provider.chat(prompt)
 
     async def generate_part1_questions(self, n: int = 1, profile: "UserProfile | None" = None) -> list[str]:
         """Pick the opening Part 1 question from the local bank (no LLM call needed)."""
