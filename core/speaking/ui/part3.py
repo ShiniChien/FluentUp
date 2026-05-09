@@ -13,6 +13,7 @@ from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
 from core.speaking.ui.eval import render_evaluation, render_streaming_eval
 from core.speaking.ui.helpers import _RESULT_LOCK, clear_streaming_state, hear_question, render_question_blurred, seed_question_audio_cache
+from core.speaking.ui.part1 import render_part_averages
 
 _QUESTION_POLL_INTERVAL = 0.5
 
@@ -211,7 +212,6 @@ def render_part3_summary() -> None:
     if not p3_turns:
         st.info("No answers recorded for Part 3.")
     else:
-        from core.speaking.ui.part1 import render_part_averages
         evaluated = [t for t in p3_turns if t.result]
         if evaluated:
             render_part_averages(evaluated)

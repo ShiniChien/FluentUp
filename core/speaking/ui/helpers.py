@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from core.async_utils import run_async
 from core.speaking.config import DEFAULT_ACCENT
@@ -56,7 +57,6 @@ def render_question_blurred(html_content: str, uid: str) -> None:
         st.markdown(html_content, unsafe_allow_html=True)
         return
 
-    import streamlit.components.v1 as components
     text_color = st.get_option("theme.textColor") or (
         "#fafafa" if st.get_option("theme.base") == "dark" else "#31333f"
     )
