@@ -6,6 +6,7 @@ import streamlit as st
 from core.async_utils import run_async
 from core.auth import current_user, get_root_user, hash_password, is_logged_in, is_root, logout, verify_password
 from core.shared import get_store, load_secrets, get_text_provider, set_text_provider_name
+from core.text_provider import GEMINI_MODELS, GEMMA_MODELS, THINKING_LEVELS
 
 # ── Shared CSS ────────────────────────────────────────────────────────────────
 st.markdown(
@@ -386,39 +387,124 @@ def _render_app() -> None:
 
 # ── Provider toggle (root only) ───────────────────────────────────────────────
 def _render_section_provider() -> None:
-    """Root-only: switch the global text-generation provider."""
-    st.divider()
+    """Root-only: configure and save text-generation provider settings."""
+
+    # ── Load current config from DB, fall back to secrets ─────────────────────
+    cfg: dict = {}
+    if store is not None:
+        try:
+            cfg = run_async(store.get_provider_config()) or {}
+        except Exception:
+            cfg = {}
+
+    if "active_provider" not in cfg:
+        cfg = {
+            "active_provider": secrets.get("text_provider", "openrouter"),
+            "providers": {
+                "openrouter": {
+                    "base_url": secrets.get("openrouter_base_url", ""),
+                    "api_key":  secrets.get("openrouter_api_key", ""),
+                    "model":    secrets.get("openrouter_model", ""),
+                },
+                "google": {
+                    "model":           secrets.get("gemma_model", "gemma-4-31b-it"),
+                    "thinking_budget": None,
+                },
+            },
+        }
+
+    active = cfg.get("active_provider", "openrouter")
+    or_cfg = cfg.get("providers", {}).get("openrouter", {})
+    g_cfg  = cfg.get("providers", {}).get("google", {})
+
+    # ── Active provider radio ─────────────────────────────────────────────────
     st.markdown("#### Text Provider")
-
-    current_name = st.session_state.get("text_provider", secrets.get("text_provider", "openrouter"))
-    options = ["openrouter", "gemma"]
-    idx = options.index(current_name) if current_name in options else 0
-
-    chosen = st.radio(
+    chosen_active = st.radio(
         "Active provider",
-        options=options,
-        index=idx,
+        options=["openrouter", "google"],
+        index=0 if active == "openrouter" else 1,
         horizontal=True,
-        key="provider_radio",
+        key="prov_active_radio",
     )
 
-    if st.button("Save provider", type="primary"):
-        set_text_provider_name(chosen)
+    st.markdown("---")
+
+    # ── OpenRouter config ─────────────────────────────────────────────────────
+    st.markdown("**OpenRouter**")
+    or_base_url = st.text_input("Base URL", value=or_cfg.get("base_url", ""), key="prov_or_url")
+    or_api_key  = st.text_input("API Key",  value=or_cfg.get("api_key", ""),  key="prov_or_key", type="password")
+    or_model    = st.text_input("Model",    value=or_cfg.get("model", ""),    key="prov_or_model")
+
+    st.markdown("---")
+
+    # ── Google config ─────────────────────────────────────────────────────────
+    st.markdown("**Google**")
+
+    current_g_model = g_cfg.get("model", GEMMA_MODELS[0])
+    is_gemini       = current_g_model in GEMINI_MODELS
+
+    family = st.radio(
+        "Model family",
+        options=["Gemini", "Gemma"],
+        index=0 if is_gemini else 1,
+        horizontal=True,
+        key="prov_g_family",
+    )
+
+    if family == "Gemini":
+        model_list    = GEMINI_MODELS
+        default_model = current_g_model if current_g_model in GEMINI_MODELS else GEMINI_MODELS[0]
+    else:
+        model_list    = GEMMA_MODELS
+        default_model = current_g_model if current_g_model in GEMMA_MODELS else GEMMA_MODELS[0]
+
+    g_model = st.selectbox(
+        "Model", options=model_list, index=model_list.index(default_model), key="prov_g_model",
+    )
+
+    g_thinking_budget: int | None = None
+    if family == "Gemini":
+        level_names   = list(THINKING_LEVELS.keys())
+        current_budget = g_cfg.get("thinking_budget", 0)
+        reverse_map   = {v: k for k, v in THINKING_LEVELS.items()}
+        current_level = reverse_map.get(current_budget, "Off")
+        level_idx     = level_names.index(current_level) if current_level in level_names else 0
+        chosen_level  = st.selectbox(
+            "Thinking", options=level_names, index=level_idx, key="prov_g_thinking",
+        )
+        g_thinking_budget = THINKING_LEVELS[chosen_level]
+    else:
+        st.caption("Thinking always on — not configurable for Gemma models.")
+
+    # ── Save ──────────────────────────────────────────────────────────────────
+    st.markdown("")
+    if st.button("💾 Save", type="primary"):
+        new_providers = {
+            "openrouter": {
+                "base_url": or_base_url.strip(),
+                "api_key":  or_api_key.strip(),
+                "model":    or_model.strip(),
+            },
+            "google": {
+                "model":           g_model,
+                "thinking_budget": g_thinking_budget,
+            },
+        }
+
         if store is not None:
             try:
-                run_async(
-                    store._client["fluentup"]["settings"].update_one(
-                        {"_id": "config"},
-                        {"$set": {"text_provider": chosen}},
-                        upsert=True,
-                    )
-                )
-                st.success(f"Provider set to **{chosen}** and saved to MongoDB.")
+                run_async(store.save_provider_config(
+                    active=chosen_active,
+                    providers=new_providers,
+                ))
+                set_text_provider_name(chosen_active)
+                active_model = g_model if chosen_active == "google" else or_model
+                st.success(f"Saved. Active: **{chosen_active}** / **{active_model}**")
             except Exception as e:
-                st.warning(f"Provider set in session but MongoDB save failed: {e}")
+                st.error(f"Save failed: {e}")
         else:
-            st.info(f"Provider set to **{chosen}** (session only — no MongoDB).")
-        st.rerun()
+            st.warning("No MongoDB connection — settings not persisted.")
+            set_text_provider_name(chosen_active)
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
