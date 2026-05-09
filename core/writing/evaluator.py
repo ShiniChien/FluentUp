@@ -7,6 +7,8 @@ import threading
 
 import streamlit as st
 
+_RESULT_LOCK = threading.Lock()
+
 from core.openrouter import async_chat
 from core.writing.topic_pool import _round_band
 
@@ -109,7 +111,8 @@ def start_evaluation(secrets: dict, task_type: str, topic: dict, essay: str) -> 
             result = asyncio.run(_evaluate_async(secrets, task_type, topic, essay))
         except Exception as exc:
             result = {"error": str(exc)}
-        st.session_state["writing_eval_result"] = result
+        with _RESULT_LOCK:
+            st.session_state["writing_eval_result"] = result
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
