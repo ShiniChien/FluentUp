@@ -125,3 +125,5 @@ Persistent Gemini Live socket managed by `GeminiLiveSession` (`core/chat/session
 | `echo_*` | Listening `state.py` | All listening page state |
 | `chat_session` | `3_Chat.py` | `GeminiLiveSession` |
 | `chat_system_prompt` | `3_Chat.py` / `eval.py` | System prompt (set by deep-dive to inject examiner context) |
+| `text_provider` | `core/shared.py` | Active provider name: `"openrouter"` or `"gemma"` |
+| `_text_provider` | `core/shared.py` | Cached `TextProvider` instance |
