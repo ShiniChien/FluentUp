@@ -10,7 +10,7 @@ from typing import Any
 import requests as requests_lib
 
 _QUESTION_TYPES = ["en_vi", "vi_en", "multiple_choice"]
-_WEIGHTS = [6, 1, 3]
+_WEIGHTS = [6, 2, 2]
 
 
 def build_question(
