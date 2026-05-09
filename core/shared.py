@@ -46,14 +46,7 @@ def get_store(secrets: dict | None = None) -> FluentUpStore | None:
     return None
 
 
-import json as _json
-
-_PROVIDER_OBJ_KEY  = "_text_provider"
-_PROVIDER_HASH_KEY = "_provider_config_hash"
-
-
-def _config_hash(cfg: dict) -> str:
-    return _json.dumps(cfg, sort_keys=True, default=str)
+_PROVIDER_OBJ_KEY = "_text_provider"
 
 
 def _load_provider_config_from_db(secrets: dict) -> dict | None:
@@ -89,7 +82,7 @@ def _build_config_from_secrets(secrets: dict) -> dict:
 
 def get_text_provider(secrets: dict) -> TextProvider:
     """Return the active TextProvider, building and caching if needed."""
-    if _PROVIDER_OBJ_KEY in st.session_state and _PROVIDER_HASH_KEY in st.session_state:
+    if _PROVIDER_OBJ_KEY in st.session_state:
         return st.session_state[_PROVIDER_OBJ_KEY]
 
     db_cfg = _load_provider_config_from_db(secrets)
@@ -98,19 +91,15 @@ def get_text_provider(secrets: dict) -> TextProvider:
     if "active_provider" not in cfg:
         cfg = _build_config_from_secrets(secrets)
 
-    h = _config_hash(cfg)
-
     active       = cfg.get("active_provider", "openrouter")
     provider_cfg = cfg.get("providers", {}).get(active, {})
     provider     = build_provider(active, secrets, provider_config=provider_cfg)
 
-    st.session_state[_PROVIDER_OBJ_KEY]  = provider
-    st.session_state[_PROVIDER_HASH_KEY] = h
+    st.session_state[_PROVIDER_OBJ_KEY] = provider
     return provider
 
 
 def set_text_provider_name(name: str) -> None:
     """Invalidate provider cache so next get_text_provider() call rebuilds."""
     st.session_state.pop(_PROVIDER_OBJ_KEY, None)
-    st.session_state.pop(_PROVIDER_HASH_KEY, None)
     st.session_state.pop("question_gen", None)

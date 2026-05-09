@@ -509,8 +509,13 @@ def _render_section_provider() -> None:
             except Exception as e:
                 st.error(f"Save failed: {e}")
         else:
-            st.warning("No MongoDB connection — settings not persisted.")
+            st.warning("No MongoDB connection — settings not persisted (session only).")
+            st.session_state["admin_prov_cfg"] = {
+                "active_provider": chosen_active,
+                "providers": new_providers,
+            }
             set_text_provider_name(chosen_active)
+            st.rerun()
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
