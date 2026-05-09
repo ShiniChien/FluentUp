@@ -46,7 +46,7 @@ class GemmaProvider(TextProvider):
             contents=prompt,
             config=GenerateContentConfig(temperature=temperature),
         )
-        return response.text.strip()
+        return (response.text or "").strip()
 
 
 def build_provider(name: str, secrets: dict) -> TextProvider:
