@@ -231,7 +231,13 @@ def main() -> None:
             continue
 
         sample = random.sample(user_vocab, min(20, len(user_vocab)))
-        questions = [build_question(entry, global_pool) for entry in sample]
+        n = len(sample)
+        n_mc = max(1, round(n * 0.2))
+        n_vi_en = max(1, round(n * 0.2))
+        n_en_vi = n - n_mc - n_vi_en
+        types = ["en_vi"] * n_en_vi + ["vi_en"] * n_vi_en + ["multiple_choice"] * n_mc
+        random.shuffle(types)
+        questions = [build_question(entry, global_pool, force_type=t) for entry, t in zip(sample, types)]
 
         html = generate_quiz_html(username, questions, timestamp)
         filename = f"{username}_{timestamp}.html"
