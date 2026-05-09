@@ -5,7 +5,7 @@ import streamlit as st
 
 from core.async_utils import run_async
 from core.auth import current_user, get_root_user, hash_password, is_logged_in, is_root, logout, verify_password
-from core.shared import get_store, load_secrets, get_text_provider, set_text_provider
+from core.shared import get_store, load_secrets, get_text_provider, set_text_provider_name
 
 # ── Shared CSS ────────────────────────────────────────────────────────────────
 st.markdown(
@@ -403,7 +403,7 @@ def _render_section_provider() -> None:
     )
 
     if st.button("Save provider", type="primary"):
-        set_text_provider(chosen, secrets)
+        set_text_provider_name(chosen)
         if store is not None:
             try:
                 run_async(
