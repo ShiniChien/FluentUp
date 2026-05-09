@@ -159,6 +159,8 @@ def test_build_provider_google():
     with patch("core.text_provider.genai.Client"):
         p = build_provider("google", {"gemini_api_key": "k"}, provider_config=config)
     assert isinstance(p, GoogleProvider)
+    assert p._model == "gemini-2.5-flash-lite"
+    assert p._thinking_budget == 0
 
 
 def test_build_provider_gemma_alias_still_works():
