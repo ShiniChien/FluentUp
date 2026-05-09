@@ -5,7 +5,7 @@ import random
 import re
 from pathlib import Path
 
-from core.openrouter import async_chat
+from core.text_provider import TextProvider
 
 _VIET11K_PATH = Path(__file__).parent / "Viet11K.txt"
 _viet_words: list[str] | None = None
@@ -38,20 +38,12 @@ def seed_words(n: int = 2) -> list[str]:
 
 
 async def generate_topic(
-    openrouter_base_url: str,
-    openrouter_api_key: str,
-    openrouter_model: str,
+    provider: TextProvider,
     n_seeds: int = 2,
 ) -> str:
     seeds = seed_words(n_seeds)
     prompt = _TOPIC_PROMPT.format(seeds=", ".join(seeds) if seeds else "everyday life")
-    topic = await async_chat(
-        base_url=openrouter_base_url,
-        api_key=openrouter_api_key,
-        model=openrouter_model,
-        prompt=prompt,
-        temperature=0.9,
-    )
+    topic = await provider.chat(prompt, temperature=0.9)
     topic = re.sub(r'^["\']|["\']$', "", topic)
     words = topic.split()
     return " ".join(words[:10])
