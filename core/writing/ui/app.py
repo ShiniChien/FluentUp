@@ -80,8 +80,11 @@ def _render_generating(secrets, store) -> None:
     st.rerun()
 
 
+from core.writing.evaluator import _RESULT_LOCK
+
 def _render_evaluating() -> None:
-    result = st.session_state.get("writing_eval_result")
+    with _RESULT_LOCK:
+        result = st.session_state.get("writing_eval_result")
     if result is not None:
         st.session_state["writing_phase"] = "result"
         st.rerun()
