@@ -9,19 +9,32 @@ from core.openrouter import async_chat
 _TARGET = 1000
 
 _TASK1_SYSTEM = """You are an IELTS Task 1 question generator.
-Return ONLY valid JSON with these fields:
+Return ONLY valid JSON with these fields based on the chart type you choose.
+
+Choose ONE chart type from: bar, line, pie, scatter, table, map, process, mixed
+
+Common schema:
 {
-  "prompt": "<one sentence exam-style description, e.g. 'The bar chart below shows...'>",
+  "prompt": "<one sentence IELTS exam-style description>",
   "chart_spec": {
-    "type": "<bar|line|pie|scatter>",
+    "type": "<chosen type>",
     "title": "<chart title>",
-    "labels": ["<label1>", "<label2>", ...],
-    "datasets": [{"label": "<series name>", "values": [<number>, ...]}, ...],
-    "x_label": "<axis label or empty string>",
-    "y_label": "<axis label or empty string>"
+    "labels": [...],
+    "datasets": [...],
+    "x_label": "<or empty string>",
+    "y_label": "<or empty string>"
   }
 }
-Make the data realistic and varied. Use 3-6 data points."""
+
+Type-specific rules:
+- bar/line/scatter: labels=x-axis categories, datasets=[{label, values:[numbers]}]
+- pie: labels=slice names, datasets=[{label, values:[numbers]}] (one dataset)
+- table: labels=column headers, datasets=[{label=row name, values=[cell values]}]
+- map: labels=location names, datasets=[{label=time period, values=[what is at each location (string)]}]
+- process: labels=step descriptions (e.g. "Cut trees"), datasets=[{label="Process", values=[labels repeated or empty]}]
+- mixed: labels=x-axis, datasets=[{label, values:[numbers], chart_subtype:"bar"}, {label, values:[numbers], chart_subtype:"line"}]
+
+Make data realistic and varied. Use 3-6 data points. Vary chart types across calls."""
 
 _TASK2_SYSTEM = """You are an IELTS Task 2 question generator.
 Return ONLY valid JSON with this field:
