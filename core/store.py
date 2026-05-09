@@ -163,9 +163,14 @@ class FluentUpStore:
     # ── Provider config ───────────────────────────────────────────────────────
 
     async def get_provider_config(self) -> dict | None:
-        return await self._settings.find_one({"_id": "config"})
+        doc = await self._settings.find_one({"_id": "config"})
+        if doc is not None:
+            doc.pop("_id", None)
+        return doc
 
     async def save_provider_config(self, active: str, providers: dict) -> None:
+        if active not in providers:
+            raise ValueError(f"active provider {active!r} not found in providers keys")
         await self._settings.update_one(
             {"_id": "config"},
             {"$set": {"active_provider": active, "providers": providers}},
@@ -194,6 +199,7 @@ class FluentUpStore:
         return str(result.inserted_id)
 
     async def get_part2_attempts(
+        self, user_id: str, limit: int = 20,
     ) -> list[dict]:
         cursor = self._part2_attempts.find(
             {"user_id": user_id},
