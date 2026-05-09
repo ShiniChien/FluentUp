@@ -338,6 +338,7 @@ def _render_provider_toggle() -> None:
                 st.warning(f"Provider set in session but MongoDB save failed: {e}")
         else:
             st.info(f"Provider set to **{chosen}** (session only — no MongoDB).")
+        st.rerun()
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
