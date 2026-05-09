@@ -199,18 +199,28 @@ def send_discord(webhook_url: str, message: str) -> None:
     resp.raise_for_status()
 
 
+_GH_PAGES_BASE = "https://shinichien.github.io/FluentUp"
+
+
 def main() -> None:
     mongo_uri = os.environ["MONGODB_URI"]
     mongo_user = os.environ.get("MONGODB_USERNAME", "")
     mongo_pass = os.environ.get("MONGODB_PASSWORD", "")
     webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
-    # PLACEHOLDER: Google Forms code removed
+    quiz_dir = os.environ.get("QUIZ_DIR", "quiz")
+
+    os.makedirs(quiz_dir, exist_ok=True)
+
+    print(f"Running GC on {quiz_dir}...")
+    cleanup_old_quiz_files(quiz_dir, days=3)
+
     print("Fetching vocabulary from MongoDB...")
     global_pool, per_user = fetch_all_vocab(mongo_uri, mongo_user, mongo_pass)
     users = fetch_users(mongo_uri, mongo_user, mongo_pass)
 
     now_ict = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=7)
-    header = f"\U0001F4DA Vocabulary Quiz - {now_ict.strftime('%Y-%m-%d %H:%M')} ICT"
+    timestamp = now_ict.strftime("%Y-%m-%d_%H-%M")
+    header = f"📚 Vocabulary Quiz - {now_ict.strftime('%Y-%m-%d %H:%M')} ICT"
     lines = [header]
 
     for user in users:
@@ -219,13 +229,22 @@ def main() -> None:
         if not user_vocab:
             print(f"  Skipping {username}: no vocabulary")
             continue
+
         sample = random.sample(user_vocab, min(20, len(user_vocab)))
         questions = [build_question(entry, global_pool) for entry in sample]
-        # Google Forms code removed, nothing to do here (will update in Task 4)
-        pass
+
+        html = generate_quiz_html(username, questions, timestamp)
+        filename = f"{username}_{timestamp}.html"
+        filepath = os.path.join(quiz_dir, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"  Generated {filepath}")
+
+        url = f"{_GH_PAGES_BASE}/quiz/{filename}"
+        lines.append(f"• {username}: {url}")
 
     if len(lines) == 1:
-        print("No forms created, skipping Discord notification.")
+        print("No quizzes generated, skipping Discord notification.")
         return
 
     message = "\n".join(lines)
