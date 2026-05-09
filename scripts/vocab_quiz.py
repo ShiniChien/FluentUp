@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime
 import os
 import random
+import re
 from typing import Any
 
 import requests as requests_lib
@@ -134,6 +135,24 @@ function submitQuiz(){{
 </script>
 </body>
 </html>"""
+
+
+_QUIZ_FILE_RE = re.compile(r"^.+_(\d{4}-\d{2}-\d{2})_\d{2}-\d{2}\.html$")
+
+
+def cleanup_old_quiz_files(quiz_dir: str, days: int = 3) -> None:
+    """Delete quiz files older than `days` days from quiz_dir."""
+    cutoff = datetime.date.today() - datetime.timedelta(days=days)
+    if not os.path.isdir(quiz_dir):
+        return
+    for fname in os.listdir(quiz_dir):
+        m = _QUIZ_FILE_RE.match(fname)
+        if not m:
+            continue
+        file_date = datetime.date.fromisoformat(m.group(1))
+        if file_date < cutoff:
+            os.remove(os.path.join(quiz_dir, fname))
+            print(f"  GC: removed {fname}")
 
 
 def fetch_all_vocab(mongo_uri: str, username: str = "", password: str = "") -> tuple[list[dict], dict[str, list[dict]]]:
