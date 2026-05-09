@@ -4,7 +4,7 @@ import streamlit as st
 
 from core.auth import current_user
 from core.models import UserProfile
-from core.shared import load_secrets
+from core.shared import load_secrets, get_text_provider
 from core.speaking.evaluator import SpeakingEvaluator
 from core.speaking.question_gen import QuestionGenerator
 from core.speaking.session import ExamSession
@@ -21,7 +21,7 @@ _STATE_VERSION = 8
 
 def _init_state(secrets: dict) -> None:
     if st.session_state.get("_state_version") != _STATE_VERSION:
-        for key in ("evaluator", "question_gen"):
+        for key in ("evaluator", "question_gen", "_text_provider"):
             st.session_state.pop(key, None)
         st.session_state["_state_version"] = _STATE_VERSION
 
@@ -43,9 +43,7 @@ def _init_state(secrets: dict) -> None:
             st.session_state.question_gen = QuestionGenerator(
                 api_key=secrets["gemini_api_key"],
                 live_model=secrets["live_model"],
-                openrouter_base_url=secrets["openrouter_base_url"],
-                openrouter_api_key=secrets["openrouter_api_key"],
-                openrouter_model=secrets["openrouter_model"],
+                provider=get_text_provider(secrets),
             )
         else:
             st.session_state.question_gen = None

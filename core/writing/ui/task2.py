@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from core.shared import get_text_provider
 from core.writing.evaluator import start_evaluation
 
 _MIN_WORDS = 250
@@ -27,7 +28,7 @@ def render_task2(secrets: dict) -> None:
 
     if st.button("Nộp bài", disabled=(word_count < _MIN_WORDS)):
         start_evaluation(
-            secrets=secrets,
+            provider=get_text_provider(secrets),
             task_type="task2",
             topic=topic,
             essay=essay,
