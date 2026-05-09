@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -62,7 +63,6 @@ def build_figure(spec: dict) -> go.Figure:
 
     elif chart_type == "map":
         # Represent spatial layout as annotated scatter on a simple grid
-        import math
         n = len(labels)
         xs = [math.cos(2 * math.pi * i / n) for i in range(n)]
         ys = [math.sin(2 * math.pi * i / n) for i in range(n)]

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import re
 import threading
+import time
 
 import streamlit as st
 
@@ -108,7 +110,6 @@ async def _evaluate_async(secrets: dict, task_type: str, topic: dict, essay: str
 
 def start_evaluation(secrets: dict, task_type: str, topic: dict, essay: str) -> None:
     """Launch evaluation in a daemon thread; writes result to session_state."""
-    import time
     st.session_state["writing_eval_result"] = None
     st.session_state["writing_eval_started_at"] = time.time()
 
