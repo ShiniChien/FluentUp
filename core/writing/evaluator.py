@@ -15,10 +15,10 @@ from core.writing.topic_pool import _round_band
 _EVAL_PROMPT = """You are an IELTS examiner. Evaluate the writing below strictly.
 Return ONLY valid JSON:
 {{
-  "task_achievement": {{"band": <0-9 in 0.5 steps>, "comment": "<2-3 sentences>"}},
-  "coherence_cohesion": {{"band": <0-9>, "comment": "<2-3 sentences>"}},
-  "lexical_resource": {{"band": <0-9>, "comment": "<2-3 sentences>"}},
-  "grammatical_range": {{"band": <0-9>, "comment": "<2-3 sentences>"}},
+  "task_achievement": {{"band": <1-9 in 0.5 steps>, "comment": "<2-3 sentences>"}},
+  "coherence_cohesion": {{"band": <1-9>, "comment": "<2-3 sentences>"}},
+  "lexical_resource": {{"band": <1-9>, "comment": "<2-3 sentences>"}},
+  "grammatical_range": {{"band": <1-9>, "comment": "<2-3 sentences>"}},
   "overall_band": <mean of four bands rounded to nearest 0.5>,
   "summary": "<3-4 sentences overall feedback>"
 }}
@@ -58,6 +58,12 @@ def _parse_response(raw: str) -> dict:
     m = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
     if m:
         text = m.group(1).strip()
+    try:
+        start = text.index('{')
+        end   = text.rindex('}') + 1
+        text  = text[start:end]
+    except ValueError:
+        pass
     return json.loads(text)
 
 
