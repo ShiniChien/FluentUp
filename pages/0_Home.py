@@ -227,6 +227,20 @@ def _render_section_users() -> None:
         st.divider()
 
 
+# ── Admin panel — Stats section ───────────────────────────────────────────────
+def _render_section_stats() -> None:
+    st.markdown("#### Usage Stats")
+    st.markdown(
+        "<div style='text-align:center;padding:48px 0;color:#8b949e'>"
+        "<div style='font-size:2.5em;margin-bottom:12px'>📊</div>"
+        "<div style='font-size:1.1em;margin-bottom:8px;color:#c9d1d9'>Usage Stats</div>"
+        "<div>Tính năng đang phát triển.</div>"
+        "<div style='margin-top:4px'>Thống kê phiên luyện tập và số user hoạt động sẽ có ở đây.</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 # ── Admin panel ───────────────────────────────────────────────────────────────
 def _render_admin() -> None:
     user = current_user()
@@ -303,6 +317,8 @@ def _render_admin() -> None:
             _render_section_users()
         elif section == "provider":
             _render_section_provider()
+        elif section == "stats":
+            _render_section_stats()
 
 
 # ── App cards (regular user) ──────────────────────────────────────────────────
