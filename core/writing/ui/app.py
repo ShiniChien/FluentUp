@@ -11,6 +11,7 @@ from core.writing.ui.state import init_state
 from core.writing.ui.task1 import render_task1
 from core.writing.ui.task2 import render_task2
 from core.writing.ui.result import render_result
+from core.writing.evaluator import _RESULT_LOCK
 
 _POLL_INTERVAL = 0.5
 _EVAL_TIMEOUT_SECS = 120
@@ -79,8 +80,6 @@ def _render_generating(secrets, store) -> None:
             st.session_state["writing_phase"] = "idle"
     st.rerun()
 
-
-from core.writing.evaluator import _RESULT_LOCK
 
 def _render_evaluating() -> None:
     with _RESULT_LOCK:
