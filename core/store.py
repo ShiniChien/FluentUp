@@ -39,6 +39,9 @@ class FluentUpStore:
 
     async def ensure_indexes(self) -> None:
         await self._vocabulary.create_index("user_id", background=True)
+        db = self._client["fluentup"]
+        await db["writing_topics"].create_index([("task_type", 1)], background=True)
+        await db["writing_topics"].create_index([("created_at", -1)], background=True)
 
     async def ping(self) -> bool:
         try:
