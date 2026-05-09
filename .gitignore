@@ -173,5 +173,6 @@ src/voice/models/
 .claude/settings.local.json
 .claude/settings.json
 .claude/skills/
+.superpowers/
 CLAUDE.md
 changelogs/
