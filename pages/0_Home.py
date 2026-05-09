@@ -389,13 +389,17 @@ def _render_app() -> None:
 def _render_section_provider() -> None:
     """Root-only: configure and save text-generation provider settings."""
 
-    # ── Load current config from DB, fall back to secrets ─────────────────────
-    cfg: dict = {}
-    if store is not None:
-        try:
-            cfg = run_async(store.get_provider_config()) or {}
-        except Exception:
-            cfg = {}
+    # ── Load current config (cached per session, cleared on save) ────────────
+    if "admin_prov_cfg" not in st.session_state:
+        cfg: dict = {}
+        if store is not None:
+            try:
+                cfg = run_async(store.get_provider_config()) or {}
+            except Exception:
+                cfg = {}
+        st.session_state["admin_prov_cfg"] = cfg
+
+    cfg = st.session_state["admin_prov_cfg"]
 
     if "active_provider" not in cfg:
         cfg = {
@@ -498,8 +502,10 @@ def _render_section_provider() -> None:
                     providers=new_providers,
                 ))
                 set_text_provider_name(chosen_active)
+                st.session_state.pop("admin_prov_cfg", None)
                 active_model = g_model if chosen_active == "google" else or_model
                 st.success(f"Saved. Active: **{chosen_active}** / **{active_model}**")
+                st.rerun()
             except Exception as e:
                 st.error(f"Save failed: {e}")
         else:
