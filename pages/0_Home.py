@@ -5,7 +5,7 @@ import streamlit as st
 
 from core.async_utils import run_async
 from core.auth import current_user, get_root_user, hash_password, is_logged_in, is_root, logout, verify_password
-from core.shared import get_store, load_secrets
+from core.shared import get_store, load_secrets, get_text_provider, set_text_provider
 
 # ── Shared CSS ────────────────────────────────────────────────────────────────
 st.markdown(
@@ -238,6 +238,8 @@ def _render_admin() -> None:
 
         st.divider()
 
+    _render_provider_toggle()
+
 
 # ── App cards (regular user) ──────────────────────────────────────────────────
 def _render_app() -> None:
@@ -299,6 +301,43 @@ def _render_app() -> None:
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
         if st.button("Vào Live Chat →", type="primary", use_container_width=True):
             st.switch_page("pages/3_Chat.py")
+
+
+
+# ── Provider toggle (root only) ───────────────────────────────────────────────
+def _render_provider_toggle() -> None:
+    """Root-only: switch the global text-generation provider."""
+    st.divider()
+    st.markdown("#### Text Provider")
+
+    current_name = st.session_state.get("text_provider", secrets.get("text_provider", "openrouter"))
+    options = ["openrouter", "gemma"]
+    idx = options.index(current_name) if current_name in options else 0
+
+    chosen = st.radio(
+        "Active provider",
+        options=options,
+        index=idx,
+        horizontal=True,
+        key="provider_radio",
+    )
+
+    if st.button("Save provider", type="primary"):
+        set_text_provider(chosen, secrets)
+        if store is not None:
+            try:
+                run_async(
+                    store._client["fluentup"]["settings"].update_one(
+                        {"_id": "config"},
+                        {"$set": {"text_provider": chosen}},
+                        upsert=True,
+                    )
+                )
+                st.success(f"Provider set to **{chosen}** and saved to MongoDB.")
+            except Exception as e:
+                st.warning(f"Provider set in session but MongoDB save failed: {e}")
+        else:
+            st.info(f"Provider set to **{chosen}** (session only — no MongoDB).")
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
