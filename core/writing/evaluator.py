@@ -10,7 +10,7 @@ import streamlit as st
 from core.openrouter import async_chat
 from core.writing.topic_pool import _round_band
 
-_EVAL_PROMPT = """You are an IELTS examiner. Evaluate the essay below strictly.
+_EVAL_PROMPT = """You are an IELTS examiner. Evaluate the writing below strictly.
 Return ONLY valid JSON:
 {{
   "task_achievement": {{"band": <0-9 in 0.5 steps>, "comment": "<2-3 sentences>"}},
@@ -24,11 +24,27 @@ Return ONLY valid JSON:
 Task type: {task_type}
 First criterion name: {first_criterion}
 
+{task_structure_note}
+
 Prompt:
 {prompt}
 
 Essay:
 {essay}"""
+
+_TASK1_STRUCTURE_NOTE = """For Task 1, the ideal response has 4 parts:
+- Intro (~1 sentence): paraphrase the prompt
+- Overview (~2 sentences): highlight key trends/features WITHOUT specific data
+- Body paragraph 1: describe and compare key data groups with specific figures
+- Body paragraph 2: describe remaining data with comparisons
+For Map/Process: describe ALL steps or changes systematically.
+Minimum 150 words."""
+
+_TASK2_STRUCTURE_NOTE = """For Task 2, the ideal response has:
+- Introduction: background + clear thesis/position
+- Body paragraphs (2-3): each with clear topic sentence, evidence, explanation
+- Conclusion: summarise position without adding new ideas
+Minimum 250 words."""
 
 
 def _first_criterion_name(task_type: str) -> str:
@@ -52,9 +68,11 @@ def _build_prompt(task_type: str, topic: dict, essay: str) -> str:
     if task_type == "task1" and topic.get("chart_data"):
         cd = topic["chart_data"]
         prompt_text += f"\nChart: {cd.get('title','')} ({cd.get('type','')})"
+    structure_note = _TASK1_STRUCTURE_NOTE if task_type == "task1" else _TASK2_STRUCTURE_NOTE
     return _EVAL_PROMPT.format(
         task_type=task_type,
         first_criterion=_first_criterion_name(task_type),
+        task_structure_note=structure_note,
         prompt=prompt_text,
         essay=essay,
     )
