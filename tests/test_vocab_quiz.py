@@ -1,5 +1,6 @@
 # tests/test_vocab_quiz.py
 import random
+import datetime
 import pytest
 
 
@@ -140,3 +141,37 @@ def test_generate_quiz_html_has_submit_button():
     ]
     html = generate_quiz_html("u", questions, "2026-05-09_07-00")
     assert "submit" in html.lower() or "nộp" in html.lower()
+
+
+import os
+import tempfile
+from scripts.vocab_quiz import cleanup_old_quiz_files
+
+
+def test_cleanup_removes_old_files():
+    with tempfile.TemporaryDirectory() as d:
+        old_date = (datetime.date.today() - datetime.timedelta(days=4)).isoformat()
+        old_file = os.path.join(d, f"user_{old_date}_07-00.html")
+        with open(old_file, "w") as f:
+            f.write("old")
+        cleanup_old_quiz_files(d, days=3)
+        assert not os.path.exists(old_file)
+
+
+def test_cleanup_keeps_recent_files():
+    with tempfile.TemporaryDirectory() as d:
+        today = datetime.date.today().isoformat()
+        new_file = os.path.join(d, f"user_{today}_07-00.html")
+        with open(new_file, "w") as f:
+            f.write("new")
+        cleanup_old_quiz_files(d, days=3)
+        assert os.path.exists(new_file)
+
+
+def test_cleanup_ignores_non_matching_files():
+    with tempfile.TemporaryDirectory() as d:
+        other = os.path.join(d, "index.html")
+        with open(other, "w") as f:
+            f.write("index")
+        cleanup_old_quiz_files(d, days=3)
+        assert os.path.exists(other)
