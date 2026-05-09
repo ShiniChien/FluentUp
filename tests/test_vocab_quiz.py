@@ -93,3 +93,50 @@ def test_send_discord_posts_correct_payload():
             timeout=10,
         )
         mock_resp.raise_for_status.assert_called_once()
+
+
+from scripts.vocab_quiz import generate_quiz_html
+
+
+def test_generate_quiz_html_contains_username():
+    questions = [
+        {"type": "SHORT_ANSWER", "question_text": "happy", "correct_answer": "vui vẻ", "choices": None},
+    ]
+    html = generate_quiz_html("shinichien", questions, "2026-05-09_07-00")
+    assert "shinichien" in html
+
+
+def test_generate_quiz_html_short_answer_has_input():
+    questions = [
+        {"type": "SHORT_ANSWER", "question_text": "happy", "correct_answer": "vui vẻ", "choices": None},
+    ]
+    html = generate_quiz_html("u", questions, "2026-05-09_07-00")
+    assert 'type="text"' in html
+    assert "happy" in html
+
+
+def test_generate_quiz_html_multiple_choice_has_radio():
+    questions = [
+        {"type": "MULTIPLE_CHOICE", "question_text": "sad", "correct_answer": "buồn",
+         "choices": ["buồn", "vui vẻ", "tức giận", "hào hứng"]},
+    ]
+    html = generate_quiz_html("u", questions, "2026-05-09_07-00")
+    assert 'type="radio"' in html
+    assert "buồn" in html
+    assert "vui vẻ" in html
+
+
+def test_generate_quiz_html_correct_answer_embedded():
+    questions = [
+        {"type": "SHORT_ANSWER", "question_text": "happy", "correct_answer": "vui vẻ", "choices": None},
+    ]
+    html = generate_quiz_html("u", questions, "2026-05-09_07-00")
+    assert "vui vẻ" in html
+
+
+def test_generate_quiz_html_has_submit_button():
+    questions = [
+        {"type": "SHORT_ANSWER", "question_text": "happy", "correct_answer": "vui vẻ", "choices": None},
+    ]
+    html = generate_quiz_html("u", questions, "2026-05-09_07-00")
+    assert "submit" in html.lower() or "nộp" in html.lower()
