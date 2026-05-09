@@ -49,8 +49,9 @@ def _compute_p_generate(count: int) -> float:
 
 
 def _round_band(value: float) -> float:
-    """Round to nearest 0.5 per IELTS convention."""
-    return round(value * 2) / 2
+    """Round to nearest 0.5 per IELTS convention (arithmetic, not banker's)."""
+    import math
+    return math.floor(value * 2 + 0.5) / 2
 
 
 async def _generate_task1(secrets: dict) -> dict:
