@@ -5,7 +5,7 @@ import math
 import random
 from datetime import datetime, timezone
 
-from core.openrouter import async_chat
+from core.text_provider import TextProvider
 
 _TARGET = 1000
 
@@ -54,14 +54,8 @@ def _round_band(value: float) -> float:
     return math.floor(value * 2 + 0.5) / 2
 
 
-async def _generate_task1(secrets: dict) -> dict:
-    raw = await async_chat(
-        base_url=secrets["openrouter_base_url"],
-        api_key=secrets["openrouter_api_key"],
-        model=secrets["openrouter_model"],
-        prompt=_TASK1_SYSTEM,
-        temperature=0.9,
-    )
+async def _generate_task1(provider: TextProvider) -> dict:
+    raw = await provider.chat(_TASK1_SYSTEM, temperature=0.9)
     data = json.loads(raw)
     return {
         "task_type":  "task1",
@@ -71,14 +65,8 @@ async def _generate_task1(secrets: dict) -> dict:
     }
 
 
-async def _generate_task2(secrets: dict) -> dict:
-    raw = await async_chat(
-        base_url=secrets["openrouter_base_url"],
-        api_key=secrets["openrouter_api_key"],
-        model=secrets["openrouter_model"],
-        prompt=_TASK2_SYSTEM,
-        temperature=0.9,
-    )
+async def _generate_task2(provider: TextProvider) -> dict:
+    raw = await provider.chat(_TASK2_SYSTEM, temperature=0.9)
     data = json.loads(raw)
     return {
         "task_type":  "task2",
@@ -88,17 +76,14 @@ async def _generate_task2(secrets: dict) -> dict:
     }
 
 
-async def get_topic(store, task_type: str, secrets: dict) -> dict:
+async def get_topic(store, task_type: str, provider: TextProvider) -> dict:
     """Return a topic dict, generating a new one or sampling from the pool."""
     col   = store._client["fluentup"]["writing_topics"]
     count = await col.count_documents({"task_type": task_type})
     p     = _compute_p_generate(count)
 
     if random.random() < p:
-        if task_type == "task1":
-            topic = await _generate_task1(secrets)
-        else:
-            topic = await _generate_task2(secrets)
+        topic = await (_generate_task1(provider) if task_type == "task1" else _generate_task2(provider))
         await col.insert_one(topic)
         topic.pop("_id", None)
         return topic
@@ -108,11 +93,7 @@ async def get_topic(store, task_type: str, secrets: dict) -> dict:
         doc.pop("_id", None)
         return doc
 
-    # Fallback: pool was empty despite count > 0 (race condition)
-    if task_type == "task1":
-        topic = await _generate_task1(secrets)
-    else:
-        topic = await _generate_task2(secrets)
+    topic = await (_generate_task1(provider) if task_type == "task1" else _generate_task2(provider))
     await col.insert_one(topic)
     topic.pop("_id", None)
     return topic
