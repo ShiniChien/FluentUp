@@ -2,31 +2,14 @@
 from __future__ import annotations
 
 import datetime
-import json
 import os
 import random
 from typing import Any
 
 import requests as requests_lib
-from google.oauth2 import service_account
-from googleapiclient.discovery import build as google_build
 
 _QUESTION_TYPES = ["en_vi", "vi_en", "multiple_choice"]
 _WEIGHTS = [6, 1, 3]
-
-_SCOPES = [
-    "https://www.googleapis.com/auth/forms.body",
-    "https://www.googleapis.com/auth/drive.file",
-]
-
-
-def _get_google_credentials() -> service_account.Credentials:
-    # Support file path (private repo) or JSON string (GitHub Secrets)
-    key_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY_FILE")
-    if key_file:
-        return service_account.Credentials.from_service_account_file(key_file, scopes=_SCOPES)
-    sa_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
-    return service_account.Credentials.from_service_account_info(sa_info, scopes=_SCOPES)
 
 
 def build_question(
@@ -53,7 +36,7 @@ def build_question(
             "choices": None,
         }
 
-    # multiple_choice — random direction 50-50
+    # multiple_choice  random direction 50-50
     if random.random() < 0.5:
         question_text = entry["word"]
         correct_answer = entry["notes"]
@@ -73,99 +56,6 @@ def build_question(
         "correct_answer": correct_answer,
         "choices": choices,
     }
-
-
-def build_form_body(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Convert question dicts to Google Forms API batchUpdate request list."""
-    requests = []
-    for idx, q in enumerate(questions):
-        if q["type"] == "SHORT_ANSWER":
-            item = {
-                "title": q["question_text"],
-                "questionItem": {
-                    "question": {
-                        "required": True,
-                        "grading": {
-                            "pointValue": 1,
-                            "correctAnswers": {
-                                "answers": [{"value": q["correct_answer"]}]
-                            },
-                            "whenRight": {"text": "Correct!"},
-                            "whenWrong": {"text": f"Correct answer: {q['correct_answer']}"},
-                        },
-                        "textQuestion": {"paragraph": False},
-                    }
-                },
-            }
-        else:  # MULTIPLE_CHOICE
-            item = {
-                "title": q["question_text"],
-                "questionItem": {
-                    "question": {
-                        "required": True,
-                        "grading": {
-                            "pointValue": 1,
-                            "correctAnswers": {
-                                "answers": [{"value": q["correct_answer"]}]
-                            },
-                            "whenRight": {"text": "Correct!"},
-                            "whenWrong": {"text": f"Correct answer: {q['correct_answer']}"},
-                        },
-                        "choiceQuestion": {
-                            "type": "RADIO",
-                            "options": [{"value": c} for c in q["choices"]],
-                            "shuffle": False,
-                        },
-                    }
-                },
-            }
-
-        requests.append({
-            "createItem": {
-                "item": item,
-                "location": {"index": idx},
-            }
-        })
-
-    return requests
-
-
-def create_quiz_form(
-    username: str,
-    questions: list[dict[str, Any]],
-    credentials: service_account.Credentials,
-) -> str:
-    """Create a Google Form quiz. Returns the form's viewform URL."""
-    forms_service = google_build("forms", "v1", credentials=credentials)
-    drive_service = google_build("drive", "v3", credentials=credentials)
-
-    date_str = datetime.date.today().isoformat()
-
-    form = forms_service.forms().create(body={
-        "info": {"title": f"Vocabulary Quiz - {username} - {date_str}"}
-    }).execute()
-    form_id = form["formId"]
-
-    requests_payload = [
-        {
-            "updateSettings": {
-                "settings": {"quizSettings": {"isQuiz": True}},
-                "updateMask": "quizSettings.isQuiz",
-            }
-        }
-    ] + build_form_body(questions)
-
-    forms_service.forms().batchUpdate(
-        formId=form_id,
-        body={"requests": requests_payload},
-    ).execute()
-
-    drive_service.permissions().create(
-        fileId=form_id,
-        body={"type": "anyone", "role": "reader"},
-    ).execute()
-
-    return f"https://docs.google.com/forms/d/{form_id}/viewform"
 
 
 def fetch_all_vocab(mongo_uri: str, username: str = "", password: str = "") -> tuple[list[dict], dict[str, list[dict]]]:
@@ -217,14 +107,13 @@ def main() -> None:
     mongo_user = os.environ.get("MONGODB_USERNAME", "")
     mongo_pass = os.environ.get("MONGODB_PASSWORD", "")
     webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
-    credentials = _get_google_credentials()
-
+    # PLACEHOLDER: Google Forms code removed
     print("Fetching vocabulary from MongoDB...")
     global_pool, per_user = fetch_all_vocab(mongo_uri, mongo_user, mongo_pass)
     users = fetch_users(mongo_uri, mongo_user, mongo_pass)
 
     now_ict = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=7)
-    header = f"📚 Vocabulary Quiz - {now_ict.strftime('%Y-%m-%d %H:%M')} ICT"
+    header = f"\U0001F4DA Vocabulary Quiz - {now_ict.strftime('%Y-%m-%d %H:%M')} ICT"
     lines = [header]
 
     for user in users:
@@ -233,16 +122,10 @@ def main() -> None:
         if not user_vocab:
             print(f"  Skipping {username}: no vocabulary")
             continue
-
         sample = random.sample(user_vocab, min(20, len(user_vocab)))
         questions = [build_question(entry, global_pool) for entry in sample]
-
-        try:
-            form_url = create_quiz_form(username, questions, credentials)
-            lines.append(f"• {username}: {form_url}")
-            print(f"  Created form for {username}: {form_url}")
-        except Exception as exc:
-            print(f"  ERROR creating form for {username}: {exc}")
+        # Google Forms code removed, nothing to do here (will update in Task 4)
+        pass
 
     if len(lines) == 1:
         print("No forms created, skipping Discord notification.")
