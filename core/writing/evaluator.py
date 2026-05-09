@@ -11,7 +11,7 @@ import streamlit as st
 
 _RESULT_LOCK = threading.Lock()
 
-from core.openrouter import async_chat
+from core.text_provider import TextProvider
 from core.writing.topic_pool import _round_band
 
 _EVAL_PROMPT = """You are an IELTS examiner. Evaluate the writing below strictly.
@@ -88,15 +88,9 @@ def _build_prompt(task_type: str, topic: dict, essay: str) -> str:
     )
 
 
-async def _evaluate_async(secrets: dict, task_type: str, topic: dict, essay: str) -> dict:
+async def _evaluate_async(provider: TextProvider, task_type: str, topic: dict, essay: str) -> dict:
     prompt = _build_prompt(task_type, topic, essay)
-    raw = await async_chat(
-        base_url=secrets["openrouter_base_url"],
-        api_key=secrets["openrouter_api_key"],
-        model=secrets["openrouter_model"],
-        prompt=prompt,
-        temperature=0.3,
-    )
+    raw = await provider.chat(prompt, temperature=0.3)
     result = _parse_response(raw)
     bands = [
         result["task_achievement"]["band"],
@@ -108,14 +102,14 @@ async def _evaluate_async(secrets: dict, task_type: str, topic: dict, essay: str
     return result
 
 
-def start_evaluation(secrets: dict, task_type: str, topic: dict, essay: str) -> None:
+def start_evaluation(provider: TextProvider, task_type: str, topic: dict, essay: str) -> None:
     """Launch evaluation in a daemon thread; writes result to session_state."""
     st.session_state["writing_eval_result"] = None
     st.session_state["writing_eval_started_at"] = time.time()
 
     def _run():
         try:
-            result = asyncio.run(_evaluate_async(secrets, task_type, topic, essay))
+            result = asyncio.run(_evaluate_async(provider, task_type, topic, essay))
         except Exception as exc:
             result = {"error": str(exc)}
         with _RESULT_LOCK:
