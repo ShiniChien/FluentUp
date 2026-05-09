@@ -58,6 +58,84 @@ def build_question(
     }
 
 
+def generate_quiz_html(
+    username: str,
+    questions: list[dict[str, Any]],
+    timestamp: str,
+) -> str:
+    """Generate a self-contained HTML quiz page."""
+
+    def _escape(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+    items_html = ""
+    for idx, q in enumerate(questions):
+        correct_escaped = _escape(q["correct_answer"])
+        question_escaped = _escape(q["question_text"])
+
+        if q["type"] == "SHORT_ANSWER":
+            answer_html = f'<input type="text" class="ans" autocomplete="off" style="width:300px;padding:4px;font-size:1em">'
+        else:
+            opts = "".join(
+                f'<label style="display:block;margin:4px 0"><input type="radio" name="q{idx}" class="ans" value="{_escape(c)}"> {_escape(c)}</label>'
+                for c in q["choices"]
+            )
+            answer_html = f'<div>{opts}</div>'
+
+        items_html += f"""
+<div class="q" data-correct="{correct_escaped}" style="margin:16px 0;padding:12px;border:1px solid #ddd;border-radius:6px">
+  <p style="margin:0 0 8px;font-weight:bold">{idx + 1}. {question_escaped}</p>
+  {answer_html}
+  <p class="feedback" style="margin:6px 0 0;display:none"></p>
+</div>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vocab Quiz - {_escape(username)} - {timestamp}</title>
+<style>
+  body{{font-family:sans-serif;max-width:720px;margin:32px auto;padding:0 16px}}
+  .correct{{background:#d4edda!important}}
+  .wrong{{background:#f8d7da!important}}
+  #score{{font-size:1.4em;font-weight:bold;padding:12px;border-radius:6px;margin-bottom:16px;display:none}}
+  button{{padding:10px 24px;font-size:1em;cursor:pointer;background:#0d6efd;color:#fff;border:none;border-radius:6px}}
+</style>
+</head>
+<body>
+<h2>📚 Vocabulary Quiz — {_escape(username)}</h2>
+<p style="color:#666">{timestamp.replace("_", " ").replace("-", ":")}</p>
+<div id="score"></div>
+<div id="questions">{items_html}</div>
+<br>
+<button onclick="submitQuiz()">Nộp bài</button>
+<script>
+function submitQuiz(){{
+  var qs=document.querySelectorAll('.q');
+  var correct=0;
+  qs.forEach(function(q){{
+    var expected=q.dataset.correct.trim().toLowerCase();
+    var input=q.querySelector('input[type="text"]');
+    var ans='';
+    if(input){{ans=input.value.trim().toLowerCase();}}
+    else{{var r=q.querySelector('input[type="radio"]:checked');ans=r?r.value.trim().toLowerCase():'';}}
+    var fb=q.querySelector('.feedback');
+    fb.style.display='block';
+    if(ans===expected){{q.classList.add('correct');correct++;fb.textContent='✓ Correct';fb.style.color='green';}}
+    else{{q.classList.add('wrong');fb.textContent='✗ Đáp án: '+q.dataset.correct;fb.style.color='red';}}
+  }});
+  var sc=document.getElementById('score');
+  sc.style.display='block';
+  sc.textContent='Score: '+correct+'/'+qs.length;
+  sc.style.background=correct===qs.length?'#d4edda':'#fff3cd';
+  sc.scrollIntoView();
+}}
+</script>
+</body>
+</html>"""
+
+
 def fetch_all_vocab(mongo_uri: str, username: str = "", password: str = "") -> tuple[list[dict], dict[str, list[dict]]]:
     """Fetch all vocabulary from MongoDB."""
     from pymongo import MongoClient
