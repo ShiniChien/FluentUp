@@ -9,6 +9,7 @@ def init_state() -> None:
         "writing_topic":       None,
         "writing_essay":       "",
         "writing_eval_result": None,
+        "writing_error":       None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:

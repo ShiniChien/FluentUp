@@ -50,6 +50,9 @@ def main() -> None:
 
 
 def _render_idle(secrets, store) -> None:
+    if st.session_state.get("writing_error"):
+        st.error(st.session_state["writing_error"])
+        st.session_state["writing_error"] = None
     st.markdown("Chọn loại bài viết để bắt đầu luyện tập:")
     task_type = st.radio(
         "Loại bài",
@@ -65,7 +68,7 @@ def _render_idle(secrets, store) -> None:
 
 def _render_generating(secrets, store) -> None:
     if store is None:
-        st.error("MongoDB không được cấu hình. Vui lòng kiểm tra kết nối.")
+        st.session_state["writing_error"] = "MongoDB không được cấu hình. Vui lòng kiểm tra kết nối."
         st.session_state["writing_phase"] = "idle"
         st.rerun()
         return
@@ -75,10 +78,11 @@ def _render_generating(secrets, store) -> None:
             topic = run_async(get_topic(store, task_type, secrets))
             st.session_state["writing_topic"] = topic
             st.session_state["writing_phase"] = "writing"
+            st.rerun()
         except Exception as exc:
-            st.error(f"Không thể tạo đề: {exc}")
+            st.session_state["writing_error"] = f"Không thể tạo đề: {exc}"
             st.session_state["writing_phase"] = "idle"
-    st.rerun()
+            st.rerun()
 
 
 def _render_evaluating() -> None:
