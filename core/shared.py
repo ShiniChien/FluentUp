@@ -89,6 +89,9 @@ def _build_config_from_secrets(secrets: dict) -> dict:
 
 def get_text_provider(secrets: dict) -> TextProvider:
     """Return the active TextProvider, building and caching if needed."""
+    if _PROVIDER_OBJ_KEY in st.session_state and _PROVIDER_HASH_KEY in st.session_state:
+        return st.session_state[_PROVIDER_OBJ_KEY]
+
     db_cfg = _load_provider_config_from_db(secrets)
     cfg    = db_cfg or _build_config_from_secrets(secrets)
 
@@ -96,12 +99,6 @@ def get_text_provider(secrets: dict) -> TextProvider:
         cfg = _build_config_from_secrets(secrets)
 
     h = _config_hash(cfg)
-
-    if (
-        _PROVIDER_OBJ_KEY in st.session_state
-        and st.session_state.get(_PROVIDER_HASH_KEY) == h
-    ):
-        return st.session_state[_PROVIDER_OBJ_KEY]
 
     active       = cfg.get("active_provider", "openrouter")
     provider_cfg = cfg.get("providers", {}).get(active, {})
@@ -116,3 +113,4 @@ def set_text_provider_name(name: str) -> None:
     """Invalidate provider cache so next get_text_provider() call rebuilds."""
     st.session_state.pop(_PROVIDER_OBJ_KEY, None)
     st.session_state.pop(_PROVIDER_HASH_KEY, None)
+    st.session_state.pop("question_gen", None)
