@@ -39,9 +39,9 @@ jobs:
 
       - name: Run vocab quiz script
         env:
-          MONGODB_URI: "mongodb://10.8.28.45:27017/"
-          MONGODB_USERNAME: ""
-          MONGODB_PASSWORD: ""
+          MONGODB_URI: "MONGODB_URI_PLACEHOLDER"
+          MONGODB_USERNAME: "MONGODB_USERNAME_PLACEHOLDER"
+          MONGODB_PASSWORD: "MONGODB_PASSWORD_PLACEHOLDER"
           DISCORD_WEBHOOK_URL: "DISCORD_WEBHOOK_PLACEHOLDER"
           QUIZ_DIR: quiz
         run: python scripts/vocab_quiz.py
