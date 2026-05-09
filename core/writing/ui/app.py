@@ -13,6 +13,7 @@ from core.writing.ui.task2 import render_task2
 from core.writing.ui.result import render_result
 
 _POLL_INTERVAL = 0.5
+_EVAL_TIMEOUT_SECS = 120
 
 
 def main() -> None:
@@ -62,6 +63,11 @@ def _render_idle(secrets, store) -> None:
 
 
 def _render_generating(secrets, store) -> None:
+    if store is None:
+        st.error("MongoDB không được cấu hình. Vui lòng kiểm tra kết nối.")
+        st.session_state["writing_phase"] = "idle"
+        st.rerun()
+        return
     with st.spinner("Đang tạo đề..."):
         task_type = st.session_state["writing_task_type"]
         try:
@@ -75,8 +81,17 @@ def _render_generating(secrets, store) -> None:
 
 
 def _render_evaluating() -> None:
+    result = st.session_state.get("writing_eval_result")
+    if result is not None:
+        st.session_state["writing_phase"] = "result"
+        st.rerun()
+        return
+    elapsed = time.time() - st.session_state.get("writing_eval_started_at", time.time())
+    if elapsed > _EVAL_TIMEOUT_SECS:
+        st.session_state["writing_eval_result"] = {"error": "Đánh giá quá thời gian chờ."}
+        st.session_state["writing_phase"] = "result"
+        st.rerun()
+        return
     with st.spinner("Đang chấm bài..."):
-        while st.session_state["writing_eval_result"] is None:
-            time.sleep(_POLL_INTERVAL)
-    st.session_state["writing_phase"] = "result"
+        time.sleep(_POLL_INTERVAL)
     st.rerun()

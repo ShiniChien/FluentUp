@@ -76,7 +76,7 @@ async def _generate_task2(secrets: dict) -> dict:
 
 async def get_topic(store, task_type: str, secrets: dict) -> dict:
     """Return a topic dict, generating a new one or sampling from the pool."""
-    col   = store.db.writing_topics
+    col   = store._client["fluentup"]["writing_topics"]
     count = await col.count_documents({"task_type": task_type})
     p     = _compute_p_generate(count)
 
