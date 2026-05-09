@@ -46,42 +46,73 @@ def get_store(secrets: dict | None = None) -> FluentUpStore | None:
     return None
 
 
-_PROVIDER_KEY = "text_provider"          # session_state string key (name)
-_PROVIDER_OBJ_KEY = "_text_provider"     # session_state cached instance
+import json as _json
+
+_PROVIDER_OBJ_KEY  = "_text_provider"
+_PROVIDER_HASH_KEY = "_provider_config_hash"
+
+
+def _config_hash(cfg: dict) -> str:
+    return _json.dumps(cfg, sort_keys=True, default=str)
+
+
+def _load_provider_config_from_db(secrets: dict) -> dict | None:
+    store = get_store(secrets)
+    if store is None:
+        return None
+    try:
+        from core.async_utils import run_async as _run_async
+        return _run_async(store.get_provider_config())
+    except Exception:
+        return None
+
+
+def _build_config_from_secrets(secrets: dict) -> dict:
+    name = secrets.get("text_provider", "openrouter")
+    if name == "gemma":
+        name = "google"
+    return {
+        "active_provider": name,
+        "providers": {
+            "openrouter": {
+                "base_url": secrets.get("openrouter_base_url", ""),
+                "api_key":  secrets.get("openrouter_api_key", ""),
+                "model":    secrets.get("openrouter_model", ""),
+            },
+            "google": {
+                "model":           secrets.get("gemma_model", "gemma-4-31b-it"),
+                "thinking_budget": None,
+            },
+        },
+    }
 
 
 def get_text_provider(secrets: dict) -> TextProvider:
     """Return the active TextProvider, building and caching if needed."""
-    if _PROVIDER_OBJ_KEY in st.session_state:
+    db_cfg = _load_provider_config_from_db(secrets)
+    cfg    = db_cfg or _build_config_from_secrets(secrets)
+
+    if "active_provider" not in cfg:
+        cfg = _build_config_from_secrets(secrets)
+
+    h = _config_hash(cfg)
+
+    if (
+        _PROVIDER_OBJ_KEY in st.session_state
+        and st.session_state.get(_PROVIDER_HASH_KEY) == h
+    ):
         return st.session_state[_PROVIDER_OBJ_KEY]
 
-    name = st.session_state.get(_PROVIDER_KEY)
+    active       = cfg.get("active_provider", "openrouter")
+    provider_cfg = cfg.get("providers", {}).get(active, {})
+    provider     = build_provider(active, secrets, provider_config=provider_cfg)
 
-    if name is None:
-        # Try MongoDB settings collection
-        store = get_store(secrets)
-        if store is not None:
-            try:
-                from core.async_utils import run_async as _run_async
-                doc = _run_async(
-                    store._client["fluentup"]["settings"].find_one({"_id": "config"})
-                )
-                if doc:
-                    name = doc.get(_PROVIDER_KEY)
-            except Exception:
-                pass
-
-    if name is None:
-        name = secrets.get("text_provider", "openrouter")
-
-    provider = build_provider(name, secrets)
-    st.session_state[_PROVIDER_OBJ_KEY] = provider
-    st.session_state[_PROVIDER_KEY] = name
+    st.session_state[_PROVIDER_OBJ_KEY]  = provider
+    st.session_state[_PROVIDER_HASH_KEY] = h
     return provider
 
 
-def set_text_provider(name: str, secrets: dict) -> None:
-    """Switch active provider; clears cached instance so next call rebuilds."""
-    st.session_state[_PROVIDER_KEY] = name
+def set_text_provider_name(name: str) -> None:
+    """Invalidate provider cache so next get_text_provider() call rebuilds."""
     st.session_state.pop(_PROVIDER_OBJ_KEY, None)
-    st.session_state.pop("question_gen", None)
+    st.session_state.pop(_PROVIDER_HASH_KEY, None)
