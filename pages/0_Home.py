@@ -110,6 +110,123 @@ def _render_login() -> None:
                         st.error("Tên đăng nhập hoặc mật khẩu không đúng.")
 
 
+# ── Admin panel — Users section ───────────────────────────────────────────────
+def _render_section_users() -> None:
+    user = current_user()
+
+    with st.expander("➕ Tạo tài khoản mới", expanded=st.session_state.get("admin_create_open", False)):
+        with st.form("create_user_form", clear_on_submit=True):
+            st.markdown("#### Thông tin đăng nhập")
+            new_username = st.text_input("Tên đăng nhập *", key="cu_username")
+            c1, c2 = st.columns(2)
+            with c1:
+                new_pass = st.text_input("Mật khẩu *", type="password", key="cu_pass")
+            with c2:
+                new_pass2 = st.text_input("Xác nhận mật khẩu *", type="password", key="cu_pass2")
+            st.markdown("#### Thông tin cá nhân")
+            profile_fields = _user_profile_fields("cu", {})
+            submitted = st.form_submit_button("Tạo tài khoản", type="primary")
+            if submitted:
+                if not new_username.strip():
+                    st.error("Tên đăng nhập không được để trống.")
+                elif not new_pass:
+                    st.error("Mật khẩu không được để trống.")
+                elif new_pass != new_pass2:
+                    st.error("Mật khẩu xác nhận không khớp.")
+                elif store is None:
+                    st.error("Không có kết nối MongoDB.")
+                else:
+                    try:
+                        uid = run_async(store.create_user(
+                            username=new_username.strip(),
+                            password_hash=hash_password(new_pass),
+                            **profile_fields,
+                        ))
+                    except Exception as e:
+                        st.error(f"Lỗi: {e}")
+                        uid = None
+                    if uid is None:
+                        st.error(f"Tên đăng nhập '{new_username.strip()}' đã tồn tại.")
+                    else:
+                        st.success(f"Đã tạo tài khoản '{new_username.strip()}'.")
+                        st.session_state["admin_create_open"] = False
+                        st.session_state.pop("admin_users_cache", None)
+                        st.rerun()
+
+    st.divider()
+    st.markdown("#### Danh sách tài khoản")
+
+    if "admin_users_cache" not in st.session_state:
+        try:
+            st.session_state["admin_users_cache"] = run_async(store.list_users()) if store else []
+        except Exception as e:
+            st.warning(f"Could not load user list: {e}")
+            st.session_state["admin_users_cache"] = []
+
+    users: list[dict] = st.session_state.get("admin_users_cache", [])
+
+    if not users:
+        st.caption("Không có tài khoản nào.")
+        return
+
+    edit_id: str | None = st.session_state.get("admin_edit_id")
+
+    for u in users:
+        uid = u["_id"]
+        is_self = uid == user.get("_id")
+        role_badge = "🔑" if u.get("role") == "root" else "👤"
+        header = f"{role_badge} **{u['username']}**  —  {u.get('name', '')} {u.get('age') or ''}".rstrip(" —")
+
+        col_h, col_edit, col_del = st.columns([6, 1, 1])
+        with col_h:
+            st.markdown(header)
+        with col_edit:
+            if st.button("Sửa", key=f"edit_{uid}", use_container_width=True):
+                st.session_state["admin_edit_id"] = uid if edit_id != uid else None
+                st.rerun()
+        with col_del:
+            if not is_self:
+                if st.button("Xóa", key=f"del_{uid}", use_container_width=True):
+                    try:
+                        run_async(store.delete_user(uid))
+                        st.session_state.pop("admin_users_cache", None)
+                        if edit_id == uid:
+                            st.session_state.pop("admin_edit_id", None)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Xóa thất bại: {e}")
+
+        if edit_id == uid:
+            with st.form(f"edit_user_{uid}"):
+                st.markdown("**Đổi mật khẩu** (để trống nếu không đổi)")
+                ep1, ep2 = st.columns(2)
+                with ep1:
+                    e_pass = st.text_input("Mật khẩu mới", type="password", key=f"ep1_{uid}")
+                with ep2:
+                    e_pass2 = st.text_input("Xác nhận", type="password", key=f"ep2_{uid}")
+                st.markdown("**Thông tin cá nhân**")
+                defaults = {k: u.get(k, "") for k in
+                            ("name", "age", "occupation", "occupation_detail", "gender")}
+                e_profile = _user_profile_fields(f"eu_{uid}", defaults)
+                if st.form_submit_button("Lưu thay đổi", type="primary"):
+                    updates: dict = {**e_profile}
+                    if e_pass:
+                        if e_pass != e_pass2:
+                            st.error("Mật khẩu xác nhận không khớp.")
+                            st.stop()
+                        updates["password_hash"] = hash_password(e_pass)
+                    try:
+                        run_async(store.update_user(uid, **updates))
+                        st.success("Đã lưu.")
+                        st.session_state.pop("admin_users_cache", None)
+                        st.session_state.pop("admin_edit_id", None)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi: {e}")
+
+        st.divider()
+
+
 # ── Admin panel ───────────────────────────────────────────────────────────────
 def _render_admin() -> None:
     user = current_user()
@@ -181,7 +298,9 @@ def _render_admin() -> None:
         )
 
     with col_content:
-        pass  # sections wired in later tasks
+        section = st.session_state["admin_section"]
+        if section == "users":
+            _render_section_users()
 
 
 # ── App cards (regular user) ──────────────────────────────────────────────────
