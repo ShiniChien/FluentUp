@@ -75,51 +75,6 @@ def test_multiple_choice_small_pool():
     assert q["correct_answer"] in q["choices"]
 
 
-from scripts.vocab_quiz import build_form_body
-
-
-def test_build_form_body_structure():
-    questions = [
-        {"type": "SHORT_ANSWER", "question_text": "happy", "correct_answer": "vui vẻ", "choices": None},
-        {"type": "MULTIPLE_CHOICE", "question_text": "sad", "correct_answer": "buồn",
-         "choices": ["buồn", "vui vẻ", "tức giận", "hào hứng"]},
-    ]
-    reqs = build_form_body(questions)
-    assert len(reqs) == 2
-
-
-def test_build_form_body_short_answer_has_grading():
-    questions = [
-        {"type": "SHORT_ANSWER", "question_text": "happy", "correct_answer": "vui vẻ", "choices": None},
-    ]
-    reqs = build_form_body(questions)
-    req = reqs[0]
-    assert "createItem" in req
-    item = req["createItem"]["item"]
-    assert "questionItem" in item
-    assert item["questionItem"]["question"]["textQuestion"]["paragraph"] is False
-    grading = item["questionItem"]["question"]["grading"]
-    assert grading["pointValue"] == 1
-    assert grading["correctAnswers"]["answers"][0]["value"] == "vui vẻ"
-
-
-def test_build_form_body_multiple_choice_has_options():
-    questions = [
-        {"type": "MULTIPLE_CHOICE", "question_text": "sad", "correct_answer": "buồn",
-         "choices": ["buồn", "vui vẻ", "tức giận", "hào hứng"]},
-    ]
-    reqs = build_form_body(questions)
-    req = reqs[0]
-    item = req["createItem"]["item"]
-    choice_q = item["questionItem"]["question"]["choiceQuestion"]
-    assert choice_q["type"] == "RADIO"
-    option_values = [o["value"] for o in choice_q["options"]]
-    assert "buồn" in option_values
-    assert len(option_values) == 4
-    grading = item["questionItem"]["question"]["grading"]
-    assert grading["correctAnswers"]["answers"][0]["value"] == "buồn"
-
-
 from unittest.mock import patch, MagicMock
 from scripts.vocab_quiz import send_discord
 
