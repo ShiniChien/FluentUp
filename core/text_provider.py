@@ -10,7 +10,7 @@ from core.openrouter import async_chat
 
 GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-3.1-flash-lite"]
 GEMMA_MODELS  = ["gemma-4-31b-it", "gemma-4-26b-a4b-it"]
-GOOGLE_MODELS = GEMINI_MODELS + GEMMA_MODELS
+_GOOGLE_MODELS = GEMINI_MODELS + GEMMA_MODELS
 
 THINKING_LEVELS = {
     "Off":  0,
