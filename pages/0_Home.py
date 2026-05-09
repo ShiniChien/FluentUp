@@ -301,6 +301,8 @@ def _render_admin() -> None:
         section = st.session_state["admin_section"]
         if section == "users":
             _render_section_users()
+        elif section == "provider":
+            _render_section_provider()
 
 
 # ── App cards (regular user) ──────────────────────────────────────────────────
@@ -367,7 +369,7 @@ def _render_app() -> None:
 
 
 # ── Provider toggle (root only) ───────────────────────────────────────────────
-def _render_provider_toggle() -> None:
+def _render_section_provider() -> None:
     """Root-only: switch the global text-generation provider."""
     st.divider()
     st.markdown("#### Text Provider")
