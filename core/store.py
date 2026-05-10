@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 from typing import Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
+
+_logger = logging.getLogger(__name__)
 
 _WRITE_RETRIES = 3
 _RETRY_DELAY = 1.0
@@ -49,6 +52,7 @@ class FluentUpStore:
             await self._client.admin.command("ping")
             return True
         except Exception:
+            _logger.exception("MongoDB ping failed")
             return False
 
     # ── Vocabulary CRUD ───────────────────────────────────────────────────────
