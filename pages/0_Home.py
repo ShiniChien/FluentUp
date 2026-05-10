@@ -246,35 +246,6 @@ def _render_section_stats() -> None:
 def _render_admin() -> None:
     user = current_user()
 
-    st.markdown("""
-    <style>
-    [data-testid="stVerticalBlock"] .admin-nav-wrap button {
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-        color: #8b949e !important;
-        text-align: left !important;
-        padding: 6px 10px !important;
-        border-radius: 6px !important;
-        font-size: 0.9em !important;
-        width: 100% !important;
-    }
-    [data-testid="stVerticalBlock"] .admin-nav-wrap button:hover {
-        color: #c9d1d9 !important;
-        background: rgba(255,255,255,0.05) !important;
-    }
-    .admin-nav-active button {
-        background: rgba(31,111,235,0.15) !important;
-        color: #58a6ff !important;
-    }
-    .admin-soon {
-        display:inline-block;font-size:9px;background:#21262d;
-        color:#6e7681;padding:1px 5px;border-radius:10px;
-        margin-left:6px;vertical-align:middle;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
     col_title, col_logout = st.columns([5, 1])
     with col_title:
         st.markdown(
@@ -288,38 +259,14 @@ def _render_admin() -> None:
 
     st.divider()
 
-    if "admin_section" not in st.session_state:
-        st.session_state["admin_section"] = "users"
+    tab_users, tab_provider, tab_stats = st.tabs(["👤 Users", "🤖 AI Provider", "📊 Stats"])
 
-    col_nav, col_content = st.columns([1.6, 5])
-
-    with col_nav:
-        section = st.session_state["admin_section"]
-
-        def _nav_btn(label: str, key: str) -> None:
-            active_class = "admin-nav-active" if section == key else ""
-            st.markdown(f'<div class="admin-nav-wrap {active_class}">', unsafe_allow_html=True)
-            if st.button(label, key=f"nav_{key}", use_container_width=True):
-                st.session_state["admin_section"] = key
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        _nav_btn("👤  Users", "users")
-        _nav_btn("🤖  AI Provider", "provider")
-        st.markdown(
-            '<div style="color:#555;padding:6px 10px;font-size:0.9em;cursor:default">'
-            '📊  Stats <span class="admin-soon">Soon</span></div>',
-            unsafe_allow_html=True,
-        )
-
-    with col_content:
-        section = st.session_state["admin_section"]
-        if section == "users":
-            _render_section_users()
-        elif section == "provider":
-            _render_section_provider()
-        elif section == "stats":
-            _render_section_stats()
+    with tab_users:
+        _render_section_users()
+    with tab_provider:
+        _render_section_provider()
+    with tab_stats:
+        _render_section_stats()
 
 
 # ── App cards (regular user) ──────────────────────────────────────────────────
