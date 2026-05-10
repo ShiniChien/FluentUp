@@ -7,6 +7,10 @@ import re
 import threading
 import time
 
+from core.log import get_logger
+
+_logger = get_logger(__name__)
+
 import streamlit as st
 
 _RESULT_LOCK = threading.Lock()
@@ -111,6 +115,7 @@ def start_evaluation(provider: TextProvider, task_type: str, topic: dict, essay:
         try:
             result = asyncio.run(_evaluate_async(provider, task_type, topic, essay))
         except Exception as exc:
+            _logger.exception("writing evaluation failed (task_type=%s)", task_type)
             result = {"error": str(exc)}
         with _RESULT_LOCK:
             st.session_state["writing_eval_result"] = result
