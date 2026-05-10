@@ -14,6 +14,9 @@ from core.speaking.session import ExamSession
 from core.speaking.ui.eval import render_evaluation, render_streaming_eval
 from core.speaking.ui.helpers import _RESULT_LOCK, clear_streaming_state, hear_question, render_question_blurred, seed_question_audio_cache
 from core.speaking.ui.part1 import render_part_averages
+from core.log import get_logger
+
+_logger = get_logger(__name__)
 
 _QUESTION_POLL_INTERVAL = 0.5
 
@@ -43,6 +46,7 @@ def _start_next_part3_question_gen(prev_question: str, answer_wav: bytes) -> Non
                 result["text"] = text
                 result["wav"] = wav
         except Exception as exc:
+            _logger.exception("part3 question gen failed")
             with _RESULT_LOCK:
                 result["error"] = str(exc)
         finally:
