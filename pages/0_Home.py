@@ -351,7 +351,10 @@ def _render_app() -> None:
         )
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
         if st.button("Vào Live Chat →", type="primary", use_container_width=True):
-            st.switch_page("pages/3_Chat.py")# ── Provider toggle (root only) ───────────────────────────────────────────────
+            st.switch_page("pages/3_Chat.py")
+
+
+# ── Provider toggle (root only) ───────────────────────────────────────────────
 def _render_section_provider() -> None:
     """Root-only: configure and save text-generation provider settings."""
 
