@@ -14,9 +14,6 @@ st.markdown(
     <style>
     [data-testid="stSidebar"] { display: none; }
     [data-testid="stSidebarCollapsedControl"] { display: none; }
-    .fu-hero { max-width: 640px; margin: 60px auto 0 auto; text-align: center; }
-    .fu-hero h1 { font-size: 3em; margin-bottom: 4px; }
-    .fu-hero p { font-size: 1.2em; opacity: 0.65; margin-bottom: 32px; }
     .fu-card {
         border: 1.5px solid rgba(128,128,128,0.3); border-radius: 12px;
         padding: 28px 20px; text-align: center; height: 200px;
@@ -74,8 +71,10 @@ def _user_profile_fields(prefix: str, defaults: dict) -> dict:
 # ── Login view ────────────────────────────────────────────────────────────────
 def _render_login() -> None:
     st.markdown(
-        '<div class="fu-hero"><h1>🎯 FluentUp</h1>'
-        '<p>Luyện tiếng Anh thực chiến với AI</p></div>',
+        "<div style='max-width:640px;margin:60px auto 0 auto;text-align:center'>"
+        "<h1 style='font-size:3em;margin-bottom:4px'>🎯 FluentUp</h1>"
+        "<p style='font-size:1.2em;opacity:0.65;margin-bottom:32px'>Luyện tiếng Anh thực chiến với AI</p>"
+        "</div>",
         unsafe_allow_html=True,
     )
 
@@ -279,25 +278,42 @@ def _render_admin() -> None:
 # ── App cards (regular user) ──────────────────────────────────────────────────
 def _render_app() -> None:
     user = current_user()
-    st.markdown(
-        '<div class="fu-hero"><h1>🎯 FluentUp</h1>'
-        '<p>Luyện tiếng Anh thực chiến với AI — chọn kỹ năng bạn muốn luyện hôm nay.</p></div>',
-        unsafe_allow_html=True,
-    )
+    name = user.get("name") or user.get("username", "")
+    avatar_letter = name[0].upper() if name else "U"
 
-    _, col_info, _ = st.columns([1, 6, 1])
-    with col_info:
-        col_name, col_out = st.columns([5, 1])
-        with col_name:
-            name = user.get("name") or user.get("username", "")
-            st.markdown(
-                f"<div style='text-align:center;margin-bottom:8px'>Xin chào, <b>{name}</b></div>",
-                unsafe_allow_html=True,
+    # Header bar
+    col_logo, col_avatar = st.columns([6, 1])
+    with col_logo:
+        st.markdown(
+            "<span style='font-size:1.4em;font-weight:700'>🎯 FluentUp</span>",
+            unsafe_allow_html=True,
+        )
+    with col_avatar:
+        with st.popover(
+            f"**{avatar_letter}**",
+            use_container_width=True,
+        ):
+            st.markdown(f"**{name}**")
+            occ_label = {"student": "Đang học", "worker": "Đang đi làm", "other": "Khác"}.get(
+                user.get("occupation", ""), ""
             )
-        with col_out:
-            if st.button("Đăng xuất", use_container_width=True):
+            if user.get("occupation_detail"):
+                st.caption(f"{occ_label} — {user['occupation_detail']}")
+            elif occ_label:
+                st.caption(occ_label)
+            if user.get("age"):
+                st.caption(f"Tuổi: {user['age']}")
+            gender_label = {"male": "Nam", "female": "Nữ", "other": "Khác"}.get(
+                user.get("gender", ""), ""
+            )
+            if gender_label:
+                st.caption(f"Giới tính: {gender_label}")
+            st.divider()
+            if st.button("Đăng xuất", use_container_width=True, key="user_logout"):
                 logout()
                 st.rerun()
+
+    st.divider()
 
     _, col_speaking, _, col_listening, _, col_chat, _ = st.columns([1, 3, 0.5, 3, 0.5, 3, 1])
 
@@ -335,11 +351,7 @@ def _render_app() -> None:
         )
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
         if st.button("Vào Live Chat →", type="primary", use_container_width=True):
-            st.switch_page("pages/3_Chat.py")
-
-
-
-# ── Provider toggle (root only) ───────────────────────────────────────────────
+            st.switch_page("pages/3_Chat.py")# ── Provider toggle (root only) ───────────────────────────────────────────────
 def _render_section_provider() -> None:
     """Root-only: configure and save text-generation provider settings."""
 
