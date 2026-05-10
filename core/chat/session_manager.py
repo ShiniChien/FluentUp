@@ -25,6 +25,9 @@ import google.genai as genai
 from google.genai import types
 
 from core.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS
+from core.log import get_logger
+
+_logger = get_logger(__name__)
 from core.live_session import wav_to_pcm16k, pcm_to_wav
 
 _CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000  # 3200 bytes = 100 ms at 16 kHz
@@ -145,7 +148,7 @@ class GeminiLiveSession:
         try:
             self._loop.call_soon_threadsafe(self._loop.stop)
         except Exception:
-            pass
+            _logger.exception("failed to enqueue audio chunk to chat session")
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -153,7 +156,7 @@ class GeminiLiveSession:
         try:
             self._loop.call_soon_threadsafe(self._input_q.put_nowait, item)
         except Exception:
-            pass
+            _logger.exception("failed to enqueue audio chunk to chat session")
 
     # ── Asyncio loop (runs in daemon thread) ──────────────────────────────────
 
@@ -162,6 +165,7 @@ class GeminiLiveSession:
         try:
             self._loop.run_until_complete(self._session_loop())
         except Exception as exc:
+            _logger.exception("chat session loop crashed")
             self._error = str(exc)
 
     async def _session_loop(self) -> None:
