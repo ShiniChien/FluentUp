@@ -112,47 +112,51 @@ def _render_login() -> None:
 
 
 # ── Admin panel — Users section ───────────────────────────────────────────────
+@st.dialog("Tạo tài khoản mới")
+def _dialog_create_user() -> None:
+    with st.form("create_user_form", clear_on_submit=True):
+        st.markdown("#### Thông tin đăng nhập")
+        new_username = st.text_input("Tên đăng nhập *", key="cu_username")
+        c1, c2 = st.columns(2)
+        with c1:
+            new_pass = st.text_input("Mật khẩu *", type="password", key="cu_pass")
+        with c2:
+            new_pass2 = st.text_input("Xác nhận mật khẩu *", type="password", key="cu_pass2")
+        st.markdown("#### Thông tin cá nhân")
+        profile_fields = _user_profile_fields("cu", {})
+        submitted = st.form_submit_button("Tạo tài khoản", type="primary")
+        if submitted:
+            if not new_username.strip():
+                st.error("Tên đăng nhập không được để trống.")
+            elif not new_pass:
+                st.error("Mật khẩu không được để trống.")
+            elif new_pass != new_pass2:
+                st.error("Mật khẩu xác nhận không khớp.")
+            elif store is None:
+                st.error("Không có kết nối MongoDB.")
+            else:
+                try:
+                    uid = run_async(store.create_user(
+                        username=new_username.strip(),
+                        password_hash=hash_password(new_pass),
+                        **profile_fields,
+                    ))
+                except Exception as e:
+                    st.error(f"Lỗi: {e}")
+                    uid = None
+                if uid is None:
+                    st.error(f"Tên đăng nhập '{new_username.strip()}' đã tồn tại.")
+                else:
+                    st.success(f"Đã tạo tài khoản '{new_username.strip()}'.")
+                    st.session_state.pop("admin_users_cache", None)
+                    st.rerun()
+
+
 def _render_section_users() -> None:
     user = current_user()
 
-    with st.expander("➕ Tạo tài khoản mới", expanded=st.session_state.get("admin_create_open", False)):
-        with st.form("create_user_form", clear_on_submit=True):
-            st.markdown("#### Thông tin đăng nhập")
-            new_username = st.text_input("Tên đăng nhập *", key="cu_username")
-            c1, c2 = st.columns(2)
-            with c1:
-                new_pass = st.text_input("Mật khẩu *", type="password", key="cu_pass")
-            with c2:
-                new_pass2 = st.text_input("Xác nhận mật khẩu *", type="password", key="cu_pass2")
-            st.markdown("#### Thông tin cá nhân")
-            profile_fields = _user_profile_fields("cu", {})
-            submitted = st.form_submit_button("Tạo tài khoản", type="primary")
-            if submitted:
-                if not new_username.strip():
-                    st.error("Tên đăng nhập không được để trống.")
-                elif not new_pass:
-                    st.error("Mật khẩu không được để trống.")
-                elif new_pass != new_pass2:
-                    st.error("Mật khẩu xác nhận không khớp.")
-                elif store is None:
-                    st.error("Không có kết nối MongoDB.")
-                else:
-                    try:
-                        uid = run_async(store.create_user(
-                            username=new_username.strip(),
-                            password_hash=hash_password(new_pass),
-                            **profile_fields,
-                        ))
-                    except Exception as e:
-                        st.error(f"Lỗi: {e}")
-                        uid = None
-                    if uid is None:
-                        st.error(f"Tên đăng nhập '{new_username.strip()}' đã tồn tại.")
-                    else:
-                        st.success(f"Đã tạo tài khoản '{new_username.strip()}'.")
-                        st.session_state["admin_create_open"] = False
-                        st.session_state.pop("admin_users_cache", None)
-                        st.rerun()
+    if st.button("➕ Tạo tài khoản mới", type="secondary"):
+        _dialog_create_user()
 
     st.divider()
     st.markdown("#### Danh sách tài khoản")
