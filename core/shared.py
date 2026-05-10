@@ -6,6 +6,9 @@ from core.async_utils import get_bg_loop
 from core.config import LIVE_MODEL
 from core.store import FluentUpStore
 from core.text_provider import TextProvider, build_provider
+from core.log import get_logger as _get_logger
+
+_logger = _get_logger(__name__)
 
 
 def load_secrets() -> dict:
@@ -57,6 +60,7 @@ def _load_provider_config_from_db(secrets: dict) -> dict | None:
         from core.async_utils import run_async as _run_async
         return _run_async(store.get_provider_config())
     except Exception:
+        _logger.exception("failed to load provider config from DB")
         return None
 
 
