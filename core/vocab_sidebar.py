@@ -8,6 +8,9 @@ from googletrans import Translator
 
 from core.async_utils import run_async
 from core.auth import current_user, is_logged_in
+from core.log import get_logger
+
+_logger = get_logger(__name__)
 
 
 # ── Translation helper ────────────────────────────────────────────────────────
@@ -62,13 +65,14 @@ def _vocab_dialog(store, user_id: str) -> None:
         try:
             existing = run_async(store.search_vocab(user_id=user_id, query=q))
         except Exception:
+            _logger.exception("vocab_sidebar: failed to search vocab from DB")
             existing = []
         if _is_duplicate(q, existing):
             return
         try:
             st.session_state["vd_notes"] = run_async(_translate_to_vi(q))
         except Exception:
-            pass
+            _logger.exception("vocab_sidebar: translation to Vietnamese failed")
 
     # ── Combined search / new-word input ──────────────────────────────────────
     query = st.text_input(
@@ -88,11 +92,13 @@ def _vocab_dialog(store, user_id: str) -> None:
             try:
                 entries = run_async(store.search_vocab(user_id=user_id, query=q))
             except Exception:
+                _logger.exception("vocab_sidebar: failed to search vocab")
                 entries = []
     else:
         try:
             entries = run_async(store.get_vocab(user_id=user_id))
         except Exception:
+            _logger.exception("vocab_sidebar: failed to get vocab list")
             entries = []
 
     # ── Match list ────────────────────────────────────────────────────────────
