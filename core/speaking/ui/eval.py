@@ -4,6 +4,10 @@ import asyncio
 import threading
 import time
 
+from core.log import get_logger
+
+_logger = get_logger(__name__)
+
 import streamlit as st
 
 from core.models import CriterionFeedback, EvaluationResult, Turn
@@ -76,6 +80,7 @@ def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
             with _RESULT_LOCK:
                 result["done"] = eval_result
         except Exception as exc:
+            _logger.exception("streaming eval failed (part=%s)", part)
             with _RESULT_LOCK:
                 result["error"] = str(exc)
 
@@ -138,6 +143,7 @@ def _start_streaming_eval(turn: Turn, part: int) -> None:
             with _RESULT_LOCK:
                 result["done"] = eval_result
         except Exception as exc:
+            _logger.exception("streaming eval failed (part=%s)", part)
             with _RESULT_LOCK:
                 result["error"] = str(exc)
 
