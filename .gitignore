@@ -176,3 +176,4 @@ src/voice/models/
 .superpowers/
 CLAUDE.md
 changelogs/
+logs/
