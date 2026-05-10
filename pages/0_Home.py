@@ -152,6 +152,23 @@ def _dialog_create_user() -> None:
                     st.rerun()
 
 
+@st.dialog("Xác nhận xóa tài khoản")
+def _dialog_confirm_delete(uid: str, username: str) -> None:
+    st.warning(f"Bạn có chắc muốn xóa tài khoản **{username}** không? Hành động này không thể hoàn tác.")
+    col_ok, col_cancel = st.columns(2)
+    with col_ok:
+        if st.button("Xóa", type="primary", use_container_width=True):
+            try:
+                run_async(store.delete_user(uid))
+                st.session_state.pop("admin_users_cache", None)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Xóa thất bại: {e}")
+    with col_cancel:
+        if st.button("Hủy", use_container_width=True):
+            st.rerun()
+
+
 def _render_section_users() -> None:
     user = current_user()
 
@@ -174,11 +191,9 @@ def _render_section_users() -> None:
         st.caption("Không có tài khoản nào.")
         return
 
-    edit_id: str | None = st.session_state.get("admin_edit_id")
-
     for u in users:
-        uid = u["_id"]
-        is_self = uid == user.get("_id")
+        uid = str(u["_id"])
+        is_self = uid == str(user.get("_id", ""))
         role_badge = "🔑" if u.get("role") == "root" else "👤"
         header = f"{role_badge} **{u['username']}**  —  {u.get('name', '')} {u.get('age') or ''}".rstrip(" —")
 
@@ -186,48 +201,36 @@ def _render_section_users() -> None:
         with col_h:
             st.markdown(header)
         with col_edit:
-            if st.button("Sửa", key=f"edit_{uid}", use_container_width=True):
-                st.session_state["admin_edit_id"] = uid if edit_id != uid else None
-                st.rerun()
+            with st.popover("Sửa", use_container_width=True):
+                with st.form(f"edit_user_{uid}"):
+                    st.markdown("**Đổi mật khẩu** (để trống nếu không đổi)")
+                    ep1, ep2 = st.columns(2)
+                    with ep1:
+                        e_pass = st.text_input("Mật khẩu mới", type="password", key=f"ep1_{uid}")
+                    with ep2:
+                        e_pass2 = st.text_input("Xác nhận", type="password", key=f"ep2_{uid}")
+                    st.markdown("**Thông tin cá nhân**")
+                    defaults = {k: u.get(k, "") for k in
+                                ("name", "age", "occupation", "occupation_detail", "gender")}
+                    e_profile = _user_profile_fields(f"eu_{uid}", defaults)
+                    if st.form_submit_button("Lưu thay đổi", type="primary"):
+                        updates: dict = {**e_profile}
+                        if e_pass:
+                            if e_pass != e_pass2:
+                                st.error("Mật khẩu xác nhận không khớp.")
+                                st.stop()
+                            updates["password_hash"] = hash_password(e_pass)
+                        try:
+                            run_async(store.update_user(uid, **updates))
+                            st.success("Đã lưu.")
+                            st.session_state.pop("admin_users_cache", None)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Lỗi: {e}")
         with col_del:
             if not is_self:
                 if st.button("Xóa", key=f"del_{uid}", use_container_width=True):
-                    try:
-                        run_async(store.delete_user(uid))
-                        st.session_state.pop("admin_users_cache", None)
-                        if edit_id == uid:
-                            st.session_state.pop("admin_edit_id", None)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Xóa thất bại: {e}")
-
-        if edit_id == uid:
-            with st.form(f"edit_user_{uid}"):
-                st.markdown("**Đổi mật khẩu** (để trống nếu không đổi)")
-                ep1, ep2 = st.columns(2)
-                with ep1:
-                    e_pass = st.text_input("Mật khẩu mới", type="password", key=f"ep1_{uid}")
-                with ep2:
-                    e_pass2 = st.text_input("Xác nhận", type="password", key=f"ep2_{uid}")
-                st.markdown("**Thông tin cá nhân**")
-                defaults = {k: u.get(k, "") for k in
-                            ("name", "age", "occupation", "occupation_detail", "gender")}
-                e_profile = _user_profile_fields(f"eu_{uid}", defaults)
-                if st.form_submit_button("Lưu thay đổi", type="primary"):
-                    updates: dict = {**e_profile}
-                    if e_pass:
-                        if e_pass != e_pass2:
-                            st.error("Mật khẩu xác nhận không khớp.")
-                            st.stop()
-                        updates["password_hash"] = hash_password(e_pass)
-                    try:
-                        run_async(store.update_user(uid, **updates))
-                        st.success("Đã lưu.")
-                        st.session_state.pop("admin_users_cache", None)
-                        st.session_state.pop("admin_edit_id", None)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Lỗi: {e}")
+                    _dialog_confirm_delete(uid, u["username"])
 
         st.divider()
 
