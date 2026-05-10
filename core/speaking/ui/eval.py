@@ -80,7 +80,7 @@ def start_bg_turn_eval(turn: Turn, turn_idx: int, part: int) -> None:
             with _RESULT_LOCK:
                 result["done"] = eval_result
         except Exception as exc:
-            _logger.exception("streaming eval failed (part=%s)", part)
+            _logger.exception("bg turn eval failed (turn_idx=%s, part=%s)", turn_idx, part)
             with _RESULT_LOCK:
                 result["error"] = str(exc)
 
