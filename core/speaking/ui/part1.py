@@ -4,6 +4,10 @@ import asyncio
 import threading
 import time
 
+from core.log import get_logger
+
+_logger = get_logger(__name__)
+
 import streamlit as st
 
 from core.async_utils import run_async
@@ -39,6 +43,7 @@ def _start_next_question_gen(prev_question: str, answer_wav: bytes) -> None:
                 result["text"] = text
                 result["wav"] = wav
         except Exception as exc:
+            _logger.exception("part1 question gen failed")
             with _RESULT_LOCK:
                 result["error"] = str(exc)
         finally:
