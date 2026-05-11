@@ -20,6 +20,7 @@ nav_pages = st.navigation(
             st.Page("pages/1_Speaking.py",  title="Speaking",  icon="🗣️"),
             st.Page("pages/2_Listening.py", title="Listening", icon="🎧"),
             st.Page("pages/3_Chat.py",      title="Live Chat", icon="💬"),
+            st.Page("pages/5_Reading.py",   title="Reading",   icon="📖"),
         ],
     }
 )
