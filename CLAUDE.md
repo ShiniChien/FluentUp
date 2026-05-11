@@ -40,6 +40,7 @@ Secrets are loaded from `.streamlit/secrets.toml` via `st.secrets`. Required key
 | `GEMMA_MODEL` | Gemma model ID (default: `"gemma-4-31b-it"`) |
 | `MONGODB_URI` | MongoDB connection string |
 | `MONGODB_USERNAME` / `MONGODB_PASSWORD` | MongoDB credentials |
+| `ROOT_USERNAME` / `ROOT_PASSWORD` | Root admin credentials (fallback: `"root"` / empty) |
 
 ## Architecture
 
@@ -49,12 +50,14 @@ Multi-page Streamlit app (`st.navigation` ≥ 1.36) for IELTS English practice. 
 app.py  ──► pages/0_Home.py        (login + admin, sidebar hidden)
         ├──► pages/1_Speaking.py   → core/speaking/ui/app.py:main()
         ├──► pages/2_Listening.py  → core/listening/ui/app.py:main()
-        └──► pages/3_Chat.py       (push-to-talk Live Chat, standalone)
+        ├──► pages/3_Chat.py       (push-to-talk Live Chat, standalone)
+        ├──► pages/4_Writing.py    → core/writing/ui/app.py:main()
+        └──► pages/5_Reading.py    → core/reading/ui/app.py:main()
 ```
 
 ### Auth
 
-`core/auth.py` — pure session helpers (`is_logged_in`, `current_user`, `logout`). No middleware. Auth state lives in `st.session_state["current_user"]`. There is a hardcoded root account (`username=root / password=root`) that bypasses MongoDB and can manage other accounts. Regular users are stored in MongoDB `users` collection.
+`core/auth.py` — pure session helpers (`is_logged_in`, `current_user`, `logout`). No middleware. Auth state lives in `st.session_state["current_user"]`. The root account credentials are loaded from `secrets.toml` (`ROOT_USERNAME` / `ROOT_PASSWORD`) via `build_root_user()` called in `pages/0_Home.py` at login time — the root user is never stored in MongoDB and can manage other accounts. Regular users are stored in MongoDB `users` collection.
 
 ### Async / threading model
 
@@ -66,15 +69,15 @@ Speaking evaluation and question generation use separate daemon threads calling 
 
 ### Store (`core/store.py`)
 
-`FluentUpStore` wraps Motor (async MongoDB). Singleton stored in `st.session_state["store"]` — `get_store()` returns `None` when MongoDB URI is not configured (app degrades gracefully). Database: `fluentup`, collections: `vocabulary`, `users`, `speaking_part2`.
+`FluentUpStore` wraps Motor (async MongoDB). Singleton stored in `st.session_state["store"]` — `get_store()` returns `None` when MongoDB URI is not configured (app degrades gracefully). Database: `fluentup`, collections: `vocabulary`, `users`, `speaking_part2`, `reading_articles`, `writing_topics`.
 
 ### Vendors
 
 | Vendor | Usage |
 |--------|-------|
 | **Google Gemini Live** (`google-genai`, `aio.live`) | Speaking: audio transcription + evaluation (TTS+STT); Listening: dialogue generation; Chat: persistent socket conversation |
-| **OpenRouter** (`openai.AsyncOpenAI` with custom `base_url`) | Speaking only: parse evaluation → structured feedback, generate Part 1/2/3 questions |
-| **Motor** (`motor.motor_asyncio`) | Async MongoDB — vocabulary, users, part 2 attempts |
+| **OpenRouter / Gemma** (`openai.AsyncOpenAI` with custom `base_url`) | Speaking: parse evaluation → structured feedback, generate questions; Writing: topic generation + essay evaluation; Reading: question generation |
+| **Motor** (`motor.motor_asyncio`) | Async MongoDB — vocabulary, users, part 2 attempts, reading articles, writing topics |
 
 ### Speaking subpackage (`core/speaking/`)
 
@@ -101,6 +104,23 @@ Scoring: fill-blank uses exact match (normalized); transcription uses `difflib.S
 
 Persistent Gemini Live socket managed by `GeminiLiveSession` (`core/chat/session_manager.py`). Push-to-talk: user records → `send_turn_wav()` → `wait_turn_complete()` → rerun to display transcript + play response audio. The session can be pre-loaded with a custom system prompt from the Speaking page's "Ask examiner" deep-dive feature (`core/speaking/ui/eval.py:_launch_deepdive`).
 
+### Writing subpackage (`core/writing/`)
+
+Phase string `writing_phase`: `idle → generating_topic → writing → evaluating → result`.
+
+- `topic_pool.py` — fetches or generates a topic via the text provider; caches in MongoDB `writing_topics` collection.
+- `chart_gen.py` — builds a Plotly figure from structured chart data embedded in the topic (Task 1 only).
+- `evaluator.py` — launches a daemon thread (`asyncio.run`) to evaluate the essay; writes result into `st.session_state["writing_eval_result"]` behind `_RESULT_LOCK`. The main thread polls in `_render_evaluating()` with `time.sleep` + `st.rerun()`.
+- UI split: `task1.py` (≥150 words, chart prompt) and `task2.py` (≥250 words, essay prompt) render the writing interface; `result.py` renders scored feedback.
+
+### Reading subpackage (`core/reading/`)
+
+Phase string `reading_phase`: `idle → generating → reading → scoring → result`.
+
+- `rss_fetcher.py` — fetches a real news article from `RSS_FEEDS` (keyed by category). Deduplication: if the article URL already exists in `reading_articles`, reuses stored questions.
+- `question_gen.py` — generates IELTS-style multiple-choice questions from the article body via the text provider.
+- Results (score, band estimate, per-question explanations) stored in `st.session_state["reading_questions"]` and persisted to MongoDB via `store.push_reading_attempt()`.
+
 ### Gemini Live protocol
 
 - API version: `v1beta`
@@ -123,6 +143,13 @@ Persistent Gemini Live socket managed by `GeminiLiveSession` (`core/chat/session
 | `turn_evals` | `eval.py` | Background eval results keyed by turn index |
 | `eval_result` | `eval.py` | Streaming eval state dict |
 | `echo_*` | Listening `state.py` | All listening page state |
+| `writing_phase` | Writing `state.py` | Phase string for writing flow |
+| `writing_topic` | Writing `app.py` | Current topic dict (prompt + optional chart_data) |
+| `writing_essay` | Writing UI | Draft essay text |
+| `writing_eval_result` | Writing `evaluator.py` | Background evaluation result dict |
+| `reading_phase` | Reading `state.py` | Phase string for reading flow |
+| `reading_article` | Reading `render.py` | Current article dict |
+| `reading_questions` | Reading `render.py` | Generated questions + answers |
 | `chat_session` | `3_Chat.py` | `GeminiLiveSession` |
 | `chat_system_prompt` | `3_Chat.py` / `eval.py` | System prompt (set by deep-dive to inject examiner context) |
 | `text_provider` | `core/shared.py` | Active provider name: `"openrouter"` or `"gemma"` |
