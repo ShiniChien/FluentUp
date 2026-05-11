@@ -244,7 +244,7 @@ def render_result(secrets: dict, store) -> None:
     col1, col2, col3 = st.columns(3)
     col1.metric("Điểm", f"{score['raw']} / {score['total']}")
     col2.metric("Band", score["band"])
-    col3.metric("Tỉ lệ đúng", f"{int(score['raw'] / score['total'] * 100)}%")
+    col3.metric("Tỉ lệ đúng", f"{int(score['raw'] / (score['total'] or 1) * 100)}%")
 
     st.markdown("---")
 
