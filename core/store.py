@@ -236,7 +236,7 @@ class FluentUpStore:
         published_at: str,
         questions: dict,
     ) -> str:
-        import datetime
+        from pymongo.errors import DuplicateKeyError
         doc = {
             "url":          url,
             "title":        title,
@@ -247,8 +247,12 @@ class FluentUpStore:
             "created_at":   datetime.datetime.utcnow(),
             "attempts":     [],
         }
-        result = await _retry_write(self._reading_articles.insert_one, doc)
-        return str(result.inserted_id)
+        try:
+            result = await _retry_write(self._reading_articles.insert_one, doc)
+            return str(result.inserted_id)
+        except DuplicateKeyError:
+            existing = await self._reading_articles.find_one({"url": url})
+            return str(existing["_id"]) if existing else ""
 
     async def push_reading_attempt(
         self,
@@ -257,8 +261,6 @@ class FluentUpStore:
         answers: dict,
         score: dict,
     ) -> None:
-        import datetime
-        from bson import ObjectId
         attempt = {
             "user_id":      user_id,
             "answers":      answers,
