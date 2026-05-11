@@ -40,12 +40,16 @@ class FluentUpStore:
         self._users = db["users"]
         self._part2_attempts = db["speaking_part2"]
         self._settings = db["settings"]
+        self._reading_articles = db["reading_articles"]
 
     async def ensure_indexes(self) -> None:
         await self._vocabulary.create_index("user_id", background=True)
         db = self._client["fluentup"]
         await db["writing_topics"].create_index([("task_type", 1)], background=True)
         await db["writing_topics"].create_index([("created_at", -1)], background=True)
+        await self._reading_articles.create_index("url", unique=True, background=True)
+        await self._reading_articles.create_index("category", background=True)
+        await self._reading_articles.create_index([("created_at", -1)], background=True)
 
     async def ping(self) -> bool:
         try:
@@ -213,4 +217,70 @@ class FluentUpStore:
         docs = await cursor.to_list(length=limit)
         for doc in docs:
             doc["_id"] = str(doc["_id"])
+        return docs
+
+    # ── Reading articles ──────────────────────────────────────────────────────
+
+    async def get_reading_article_by_url(self, url: str) -> dict | None:
+        doc = await self._reading_articles.find_one({"url": url})
+        if doc:
+            doc["_id"] = str(doc["_id"])
+        return doc
+
+    async def save_reading_article(
+        self,
+        url: str,
+        title: str,
+        body: str,
+        category: str,
+        published_at: str,
+        questions: dict,
+    ) -> str:
+        import datetime
+        doc = {
+            "url":          url,
+            "title":        title,
+            "body":         body,
+            "category":     category,
+            "published_at": published_at,
+            "questions":    questions,
+            "created_at":   datetime.datetime.utcnow(),
+            "attempts":     [],
+        }
+        result = await _retry_write(self._reading_articles.insert_one, doc)
+        return str(result.inserted_id)
+
+    async def push_reading_attempt(
+        self,
+        doc_id: str,
+        user_id: str,
+        answers: dict,
+        score: dict,
+    ) -> None:
+        import datetime
+        from bson import ObjectId
+        attempt = {
+            "user_id":      user_id,
+            "answers":      answers,
+            "score":        score,
+            "attempted_at": datetime.datetime.utcnow(),
+        }
+        await _retry_write(
+            self._reading_articles.update_one,
+            {"_id": ObjectId(doc_id)},
+            {"$push": {"attempts": attempt}},
+        )
+
+    async def list_reading_attempts(self, user_id: str, limit: int = 20) -> list[dict]:
+        """Return articles that have at least one attempt by user_id."""
+        cursor = self._reading_articles.find(
+            {"attempts.user_id": user_id},
+            {"title": 1, "category": 1, "url": 1, "attempts": 1, "created_at": 1},
+            sort=[("created_at", -1)],
+            limit=limit,
+        )
+        docs = await cursor.to_list(length=limit)
+        for doc in docs:
+            doc["_id"] = str(doc["_id"])
+            doc["attempts"] = [a for a in doc.get("attempts", []) if a["user_id"] == user_id]
         return docs
