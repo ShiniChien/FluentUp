@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass
 
@@ -19,6 +20,7 @@ _MIN_WORDS = 400
 _MAX_WORDS = 900
 _MAX_TRIES = 5
 _TIMEOUT   = 15
+_MAX_CANDIDATES = _MAX_TRIES * 2
 
 
 @dataclass
@@ -34,8 +36,10 @@ def _word_count(text: str) -> int:
     return len(text.split())
 
 
-def _strip_html(html: str) -> str:
-    return re.sub(r"<[^>]+>", " ", html).strip()
+def _strip_html(raw: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", raw).strip()
+    text = html.unescape(text)
+    return text
 
 
 def _fetch_body(url: str) -> str:
@@ -46,7 +50,7 @@ def _fetch_body(url: str) -> str:
         paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", resp.text, re.DOTALL)
         body = " ".join(_strip_html(p) for p in paragraphs)
         return re.sub(r"\s+", " ", body).strip()
-    except Exception:
+    except (httpx.HTTPError, httpx.TimeoutException):
         return ""
 
 
@@ -59,20 +63,27 @@ def fetch_article(category: str) -> ArticleData:
     if not feed_url:
         raise ValueError(f"Unknown category: {category!r}")
 
-    feed = feedparser.parse(feed_url)
-    entries = feed.entries[:_MAX_TRIES * 2]
+    try:
+        response = httpx.get(feed_url, timeout=_TIMEOUT, follow_redirects=True,
+                             headers={"User-Agent": "Mozilla/5.0"})
+        feed = feedparser.parse(response.text)
+    except (httpx.HTTPError, httpx.TimeoutException) as exc:
+        raise ValueError(f"Failed to fetch RSS feed for category '{category}': {exc}") from exc
+
+    entries = feed.entries[:_MAX_CANDIDATES]
 
     tried = 0
     for entry in entries:
         if tried >= _MAX_TRIES:
             break
-        tried += 1
 
         url = entry.get("link", "")
         if not url:
             continue
 
-        title = _strip_html(entry.get("title", "")).strip()
+        tried += 1
+
+        title = _strip_html(entry.get("title", ""))
         body  = _fetch_body(url)
 
         wc = _word_count(body)
@@ -83,4 +94,4 @@ def fetch_article(category: str) -> ArticleData:
         return ArticleData(title=title, body=body, url=url,
                            category=category, published_at=published)
 
-    raise ValueError(f"Không tìm được bài phù hợp trong category '{category}' sau {_MAX_TRIES} lần thử.")
+    raise ValueError(f"No suitable article found in category '{category}' after {_MAX_TRIES} attempts.")
