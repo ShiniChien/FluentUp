@@ -42,19 +42,20 @@ def _strip_html(raw: str) -> str:
     return text
 
 
-def _fetch_body(url: str) -> str:
+async def _fetch_body(url: str) -> str:
     """Fetch page and extract readable text from <p> tags."""
     try:
-        resp = httpx.get(url, timeout=_TIMEOUT, follow_redirects=True,
-                         headers={"User-Agent": "Mozilla/5.0"})
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=_TIMEOUT, follow_redirects=True,
+                                    headers={"User-Agent": "Mozilla/5.0"})
         paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", resp.text, re.DOTALL)
-        body = " ".join(_strip_html(p) for p in paragraphs)
-        return re.sub(r"\s+", " ", body).strip()
+        body = "\n\n".join(_strip_html(p) for p in paragraphs if _strip_html(p))
+        return body.strip()
     except (httpx.HTTPError, httpx.TimeoutException):
         return ""
 
 
-def fetch_article(category: str) -> ArticleData:
+async def fetch_article(category: str) -> ArticleData:
     """Fetch one suitable article from the RSS feed for `category`.
 
     Raises ValueError if no suitable article found after _MAX_TRIES attempts.
@@ -64,8 +65,9 @@ def fetch_article(category: str) -> ArticleData:
         raise ValueError(f"Unknown category: {category!r}")
 
     try:
-        response = httpx.get(feed_url, timeout=_TIMEOUT, follow_redirects=True,
-                             headers={"User-Agent": "Mozilla/5.0"})
+        async with httpx.AsyncClient() as client:
+            response = await client.get(feed_url, timeout=_TIMEOUT, follow_redirects=True,
+                                        headers={"User-Agent": "Mozilla/5.0"})
         feed = feedparser.parse(response.text)
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         raise ValueError(f"Failed to fetch RSS feed for category '{category}': {exc}") from exc
@@ -84,7 +86,7 @@ def fetch_article(category: str) -> ArticleData:
         tried += 1
 
         title = _strip_html(entry.get("title", ""))
-        body  = _fetch_body(url)
+        body  = await _fetch_body(url)
 
         wc = _word_count(body)
         if wc < _MIN_WORDS or wc > _MAX_WORDS:

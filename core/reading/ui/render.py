@@ -62,7 +62,7 @@ def render_generating(secrets: dict, store) -> None:
 
     with st.spinner("Đang tìm bài và tạo câu hỏi..."):
         try:
-            article = fetch_article(category)
+            article = run_async(fetch_article(category))
         except ValueError as exc:
             st.session_state["reading_error"] = str(exc)
             st.session_state["reading_phase"] = "idle"
