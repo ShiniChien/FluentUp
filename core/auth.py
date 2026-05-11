@@ -5,19 +5,6 @@ import hashlib
 
 import streamlit as st
 
-_ROOT_USER = {
-    "username": "root",
-    "password_hash": hashlib.sha256(b"root").hexdigest(),
-    "role": "root",
-    "name": "Administrator",
-    "age": 0,
-    "occupation": "other",
-    "occupation_detail": "System administrator",
-    "gender": "other",
-    "_id": "root",
-}
-
-
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -26,8 +13,18 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return hash_password(password) == stored_hash
 
 
-def get_root_user() -> dict:
-    return _ROOT_USER
+def build_root_user(username: str, password: str) -> dict:
+    return {
+        "username": username,
+        "password_hash": hash_password(password),
+        "role": "root",
+        "name": "Administrator",
+        "age": 0,
+        "occupation": "other",
+        "occupation_detail": "System administrator",
+        "gender": "other",
+        "_id": username,
+    }
 
 
 def current_user() -> dict | None:

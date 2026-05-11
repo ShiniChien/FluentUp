@@ -4,7 +4,7 @@ from __future__ import annotations
 import streamlit as st
 
 from core.async_utils import run_async
-from core.auth import current_user, get_root_user, hash_password, is_logged_in, is_root, logout, verify_password
+from core.auth import current_user, build_root_user, hash_password, is_logged_in, is_root, logout, verify_password
 from core.shared import get_store, load_secrets, get_text_provider, set_text_provider_name
 from core.text_provider import GEMINI_MODELS, GEMMA_MODELS, THINKING_LEVELS
 
@@ -91,7 +91,10 @@ def _render_login() -> None:
                 st.error("Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu.")
             else:
                 # Check root first (always-on, not in DB)
-                root = get_root_user()
+                root = build_root_user(
+                    secrets.get("root_username", "root"),
+                    secrets.get("root_password", ""),
+                )
                 if username.strip() == root["username"] and verify_password(password, root["password_hash"]):
                     st.session_state["current_user"] = root
                     st.rerun()
