@@ -39,9 +39,13 @@ def _render_entry_list(entries: list[dict], store) -> None:
         col_word, col_del = st.columns([8, 1])
         with col_word:
             w = entry.get("word", "")
-            n = entry.get("notes", "")
-            if n:
-                st.markdown(f"**{w}** — _{n}_")
+            senses = entry.get("senses", [])
+            if senses:
+                meanings = "; ".join(
+                    f"_{s['meaning']}_" + (" `REVIEW`" if s.get("status") == "IN_REVIEW" else "")
+                    for s in senses if s.get("meaning")
+                )
+                st.markdown(f"**{w}** — {meanings}")
             else:
                 st.markdown(f"**{w}**")
         with col_del:
@@ -128,19 +132,92 @@ def _vocab_dialog(store, user_id: str) -> None:
         dup_entry = next((e for e in entries if e.get("word", "").lower() == q.lower()), None)
 
         if dup_entry:
-            st.markdown("##### Chỉnh sửa")
-            if "vd_notes" not in st.session_state:
-                st.session_state["vd_notes"] = dup_entry.get("notes", "")
-            notes = st.text_input("Ghi chú / nghĩa", placeholder="nghĩa, ví dụ…", key="vd_notes")
-            if st.button("✏️ Cập nhật", type="primary", use_container_width=True):
-                try:
-                    run_async(store.update_vocab(dup_entry["_id"], notes))
-                    st.session_state.pop("vd_notes", None)
-                    st.session_state.pop("vd_query", None)
-                    st.session_state["_vocab_dialog_open"] = True
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Cập nhật thất bại: {exc}")
+            word_id = dup_entry["_id"]
+            senses: list[dict] = dup_entry.get("senses", [])
+
+            col_title, col_del_word = st.columns([7, 2])
+            with col_title:
+                st.markdown(f"##### {dup_entry['word']}")
+            with col_del_word:
+                if st.button("🗑️ Xóa từ", use_container_width=True, key="del_whole_word"):
+                    st.session_state["_confirm_delete_word"] = word_id
+
+            if st.session_state.get("_confirm_delete_word") == word_id:
+                st.warning("Xóa toàn bộ từ này?")
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    if st.button("Xác nhận xóa", type="primary", use_container_width=True, key="confirm_del_word"):
+                        try:
+                            run_async(store.delete_vocab(word_id))
+                            st.session_state.pop("_confirm_delete_word", None)
+                            st.session_state.pop("vd_query", None)
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Xoá thất bại: {exc}")
+                with cc2:
+                    if st.button("Hủy", use_container_width=True, key="cancel_del_word"):
+                        st.session_state.pop("_confirm_delete_word", None)
+                        st.rerun()
+
+            if senses:
+                st.markdown("**Các nghĩa hiện có:**")
+                for idx, sense in enumerate(senses):
+                    edit_key = f"_edit_sense_{word_id}_{idx}"
+                    is_editing = st.session_state.get(edit_key, False)
+                    status_badge = " `REVIEW`" if sense.get("status") == "IN_REVIEW" else ""
+                    s_col, e_col, d_col = st.columns([7, 1, 1])
+                    with s_col:
+                        if is_editing:
+                            new_meaning = st.text_input(
+                                "Sửa nghĩa", value=sense.get("meaning", ""),
+                                key=f"sense_input_{word_id}_{idx}",
+                                label_visibility="collapsed",
+                            )
+                        else:
+                            st.markdown(f"• _{sense.get('meaning', '')}_" + status_badge)
+                    with e_col:
+                        if is_editing:
+                            if st.button("✅", key=f"save_sense_{word_id}_{idx}", help="Lưu"):
+                                val = st.session_state.get(f"sense_input_{word_id}_{idx}", "").strip()
+                                if val:
+                                    try:
+                                        run_async(store.update_sense(word_id, idx, val))
+                                        st.session_state.pop(edit_key, None)
+                                        st.rerun()
+                                    except Exception as exc:
+                                        st.error(f"Cập nhật thất bại: {exc}")
+                        else:
+                            if st.button("✏️", key=f"edit_sense_{word_id}_{idx}", help="Sửa"):
+                                st.session_state[edit_key] = True
+                                st.rerun()
+                    with d_col:
+                        if st.button("🗑️", key=f"del_sense_{word_id}_{idx}", help="Xoá nghĩa"):
+                            try:
+                                run_async(store.delete_sense(word_id, idx))
+                                st.session_state.pop("vd_query", None)
+                                st.rerun()
+                            except Exception as exc:
+                                st.error(f"Xoá thất bại: {exc}")
+            else:
+                st.caption("Từ này chưa có nghĩa nào.")
+
+            st.markdown("**Thêm nghĩa mới:**")
+            new_meaning_val = st.text_input(
+                "Nghĩa mới", placeholder="nghĩa, ví dụ…",
+                key="vd_new_sense", label_visibility="collapsed",
+            )
+            if st.button("💾 Thêm nghĩa", type="primary", use_container_width=True):
+                val = new_meaning_val.strip()
+                if val:
+                    try:
+                        run_async(store.add_sense(word_id, val))
+                        st.session_state.pop("vd_new_sense", None)
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Thêm nghĩa thất bại: {exc}")
+                else:
+                    st.warning("Vui lòng nhập nghĩa.")
+
         else:
             st.markdown("##### Thêm mới")
             notes = st.text_input("Ghi chú / nghĩa", placeholder="nghĩa, ví dụ…", key="vd_notes")
