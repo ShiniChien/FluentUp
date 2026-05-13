@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import inspect
 import logging
 from typing import Any
 
@@ -12,6 +13,18 @@ _logger = logging.getLogger(__name__)
 
 _WRITE_RETRIES = 3
 _RETRY_DELAY = 1.0
+
+
+async def _maybe_await(value):
+    """Await value if it is a coroutine/awaitable; otherwise return it directly.
+
+    Needed because tests wire mongomock (sync) collections in place of Motor
+    (async) collections, so method calls may return plain values instead of
+    coroutines.
+    """
+    if inspect.isawaitable(value):
+        return await value
+    return value
 
 
 async def _retry_write(coro_fn, *args, **kwargs):
@@ -44,12 +57,39 @@ class FluentUpStore:
 
     async def ensure_indexes(self) -> None:
         await self._vocabulary.create_index("user_id", background=True)
+        await self._vocabulary.create_index(
+            [("word", 1), ("user_id", 1)], unique=True, background=True
+        )
         db = self._client["fluentup"]
         await db["writing_topics"].create_index([("task_type", 1)], background=True)
         await db["writing_topics"].create_index([("created_at", -1)], background=True)
         await self._reading_articles.create_index("url", unique=True, background=True)
         await self._reading_articles.create_index("category", background=True)
         await self._reading_articles.create_index([("created_at", -1)], background=True)
+        await self._migrate_vocab()
+
+    async def _migrate_vocab(self) -> None:
+        """One-time migration: convert `notes` field → senses array."""
+        sample = await _maybe_await(self._vocabulary.find_one({"notes": {"$exists": True}}))
+        if sample is None:
+            return
+        cursor = self._vocabulary.find({"notes": {"$exists": True}})
+        # Support both sync (mongomock) and async (Motor) cursors
+        if inspect.isasyncgen(cursor) or hasattr(cursor, '__aiter__'):
+            docs = await _maybe_await(cursor.to_list(length=10000))
+        else:
+            docs = list(cursor)
+        for doc in docs:
+            notes = doc.get("notes", "").strip()
+            senses = (
+                [{"meaning": notes, "status": "ACTIVE", "created_at": doc.get("created_at", datetime.datetime.utcnow())}]
+                if notes else []
+            )
+            await _maybe_await(self._vocabulary.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {"senses": senses}, "$unset": {"notes": ""}},
+            ))
+        _logger.info("vocab migration complete")
 
     async def ping(self) -> bool:
         try:
@@ -62,16 +102,24 @@ class FluentUpStore:
     # ── Vocabulary CRUD ───────────────────────────────────────────────────────
 
     async def save_vocab(
-        self, word: str, notes: str = "", user_id: str = "default"
+        self, word: str, meaning: str = "", user_id: str = "default"
     ) -> str:
-        doc: dict[str, Any] = {
-            "word":       word.strip(),
-            "notes":      notes.strip(),
-            "user_id":    user_id,
+        word = word.strip()
+        sense: dict[str, Any] = {
+            "meaning": meaning.strip(),
+            "status": "ACTIVE",
             "created_at": datetime.datetime.utcnow(),
         }
-        result = await _retry_write(self._vocabulary.insert_one, doc)
-        return str(result.inserted_id)
+        now = datetime.datetime.utcnow()
+        result = await _maybe_await(self._vocabulary.update_one(
+            {"word": word, "user_id": user_id},
+            {"$push": {"senses": sense}, "$setOnInsert": {"created_at": now}},
+            upsert=True,
+        ))
+        if result.upserted_id is not None:
+            return str(result.upserted_id)
+        doc = await _maybe_await(self._vocabulary.find_one({"word": word, "user_id": user_id}, {"_id": 1}))
+        return str(doc["_id"])
 
     async def get_vocab(
         self, user_id: str = "default", limit: int = 20
@@ -81,7 +129,10 @@ class FluentUpStore:
             sort=[("created_at", -1)],
             limit=limit,
         )
-        docs = await cursor.to_list(length=limit)
+        if hasattr(cursor, 'to_list'):
+            docs = await _maybe_await(cursor.to_list(length=limit))
+        else:
+            docs = list(cursor)
         for doc in docs:
             doc["_id"] = str(doc["_id"])
         return docs
@@ -104,12 +155,44 @@ class FluentUpStore:
         result = await self._vocabulary.delete_one({"_id": ObjectId(entry_id)})
         return result.deleted_count > 0
 
-    async def update_vocab(self, entry_id: str, notes: str) -> bool:
-        result = await self._vocabulary.update_one(
-            {"_id": ObjectId(entry_id)},
-            {"$set": {"notes": notes.strip()}},
-        )
+    async def add_sense(self, word_id: str, meaning: str) -> None:
+        sense: dict[str, Any] = {
+            "meaning": meaning.strip(),
+            "status": "ACTIVE",
+            "created_at": datetime.datetime.utcnow(),
+        }
+        await _maybe_await(self._vocabulary.update_one(
+            {"_id": ObjectId(word_id)},
+            {"$push": {"senses": sense}},
+        ))
+
+    async def update_sense(self, word_id: str, sense_idx: int, meaning: str) -> bool:
+        result = await _maybe_await(self._vocabulary.update_one(
+            {"_id": ObjectId(word_id)},
+            {"$set": {f"senses.{sense_idx}.meaning": meaning.strip()}},
+        ))
         return result.modified_count > 0
+
+    async def delete_sense(self, word_id: str, sense_idx: int) -> bool:
+        """Remove sense at index. Returns True if the whole word was deleted."""
+        doc = await _maybe_await(self._vocabulary.find_one({"_id": ObjectId(word_id)}))
+        if doc is None:
+            return False
+        senses: list = doc.get("senses", [])
+        if len(senses) <= 1:
+            await _maybe_await(self._vocabulary.delete_one({"_id": ObjectId(word_id)}))
+            return True
+        senses.pop(sense_idx)
+        await _maybe_await(self._vocabulary.update_one(
+            {"_id": ObjectId(word_id)},
+            {"$set": {"senses": senses}},
+        ))
+        return False
+
+    async def count_review_vocab(self, user_id: str) -> int:
+        return await _maybe_await(self._vocabulary.count_documents(
+            {"user_id": user_id, "senses.status": "IN_REVIEW"}
+        ))
 
     # ── User account CRUD ─────────────────────────────────────────────────────
 
