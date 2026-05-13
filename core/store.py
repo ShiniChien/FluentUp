@@ -142,11 +142,14 @@ class FluentUpStore:
     ) -> list[dict]:
         regex = {"$regex": query, "$options": "i"}
         cursor = self._vocabulary.find(
-            {"user_id": user_id, "$or": [{"word": regex}, {"notes": regex}]},
+            {"user_id": user_id, "$or": [{"word": regex}, {"senses.meaning": regex}]},
             sort=[("created_at", -1)],
             limit=limit,
         )
-        docs = await cursor.to_list(length=limit)
+        if hasattr(cursor, 'to_list'):
+            docs = await _maybe_await(cursor.to_list(length=limit))
+        else:
+            docs = list(cursor)
         for doc in docs:
             doc["_id"] = str(doc["_id"])
         return docs
