@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 
+import bson
 import mongomock
 import pytest
 from unittest.mock import patch, MagicMock
@@ -28,7 +29,7 @@ def _make_store():
 
 
 def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ── save_vocab ─────────────────────────────────────────────────────────────────
@@ -122,7 +123,7 @@ def test_count_review_vocab_counts_words_with_any_review_sense():
     store = _make_store()
     wid = run(store.save_vocab("bank", "bờ sông", user_id="u1"))
     store._vocabulary.update_one(
-        {"_id": __import__("bson").ObjectId(wid)},
+        {"_id": bson.ObjectId(wid)},
         {"$push": {"senses": {"meaning": "ngân hàng", "status": "IN_REVIEW",
                                "created_at": datetime.datetime.utcnow()}}},
     )
@@ -133,7 +134,6 @@ def test_count_review_vocab_counts_words_with_any_review_sense():
 
 def test_migrate_converts_notes_to_senses():
     store = _make_store()
-    import datetime, bson
     now = datetime.datetime.utcnow()
     store._vocabulary.insert_one({
         "word": "legacy", "notes": "di sản", "user_id": "u1", "created_at": now,
