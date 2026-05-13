@@ -318,6 +318,26 @@ def _render_app() -> None:
 
     st.divider()
 
+    # ── Vocab review banner ───────────────────────────────────────────────────
+    if store is not None and "_vocab_review_count" not in st.session_state:
+        user_id = user.get("_id", "default")
+        try:
+            st.session_state["_vocab_review_count"] = run_async(
+                store.count_review_vocab(user_id)
+            )
+        except Exception:
+            st.session_state["_vocab_review_count"] = 0
+
+    review_count: int = st.session_state.get("_vocab_review_count", 0)
+    if review_count > 0:
+        col_msg, col_btn = st.columns([5, 1])
+        with col_msg:
+            st.info(f"📚 Bạn có **{review_count}** từ vựng đang chờ review.")
+        with col_btn:
+            if st.button("Xem ngay →", use_container_width=True):
+                st.session_state["_vocab_dialog_open"] = True
+                st.rerun()
+
     _, col_speaking, _, col_listening, _, col_chat, _ = st.columns([1, 3, 0.5, 3, 0.5, 3, 1])
 
     with col_speaking:
