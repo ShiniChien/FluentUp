@@ -13,6 +13,12 @@ from core.log import get_logger
 _logger = get_logger(__name__)
 
 
+# ── Cache helpers ─────────────────────────────────────────────────────────────
+
+def _bust_review_cache() -> None:
+    st.session_state.pop("_vocab_review_count", None)
+
+
 # ── Translation helper ────────────────────────────────────────────────────────
 
 async def _translate_to_vi(word: str) -> str:
@@ -52,6 +58,7 @@ def _render_entry_list(entries: list[dict], store) -> None:
             if st.button("×", key=f"del_vocab_{entry['_id']}", help="Xoá"):
                 try:
                     run_async(store.delete_vocab(entry["_id"]))
+                    _bust_review_cache()
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Xoá thất bại: {exc}")
@@ -151,6 +158,7 @@ def _vocab_dialog(store, user_id: str) -> None:
                             run_async(store.delete_vocab(word_id))
                             st.session_state.pop("_confirm_delete_word", None)
                             st.session_state.pop("vd_query", None)
+                            _bust_review_cache()
                             st.rerun()
                         except Exception as exc:
                             st.error(f"Xoá thất bại: {exc}")
@@ -183,6 +191,7 @@ def _vocab_dialog(store, user_id: str) -> None:
                                     try:
                                         run_async(store.update_sense(word_id, idx, val))
                                         st.session_state.pop(edit_key, None)
+                                        _bust_review_cache()
                                         st.rerun()
                                     except Exception as exc:
                                         st.error(f"Cập nhật thất bại: {exc}")
@@ -195,6 +204,7 @@ def _vocab_dialog(store, user_id: str) -> None:
                             try:
                                 run_async(store.delete_sense(word_id, idx))
                                 st.session_state.pop("vd_query", None)
+                                _bust_review_cache()
                                 st.rerun()
                             except Exception as exc:
                                 st.error(f"Xoá thất bại: {exc}")
@@ -212,6 +222,7 @@ def _vocab_dialog(store, user_id: str) -> None:
                     try:
                         run_async(store.add_sense(word_id, val))
                         st.session_state.pop("vd_new_sense", None)
+                        _bust_review_cache()
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Thêm nghĩa thất bại: {exc}")
@@ -227,6 +238,7 @@ def _vocab_dialog(store, user_id: str) -> None:
                     st.session_state.pop("vd_notes", None)
                     st.session_state.pop("vd_query", None)
                     st.session_state["_vocab_dialog_open"] = True
+                    _bust_review_cache()
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Lưu thất bại: {exc}")
