@@ -16,11 +16,15 @@ nav_pages = st.navigation(
         "FluentUp": [
             st.Page("pages/0_Home.py",      title="Home",      icon="🏠", default=True),
         ],
-        "Practice": [
+        "Skills": [
             st.Page("pages/1_Speaking.py",  title="Speaking",  icon="🗣️"),
             st.Page("pages/2_Listening.py", title="Listening", icon="🎧"),
-            st.Page("pages/3_Chat.py",      title="Live Chat", icon="💬"),
+            st.Page("pages/4_Writing.py",   title="Writing",   icon="✍️"),
             st.Page("pages/5_Reading.py",   title="Reading",   icon="📖"),
+            st.Page("pages/3_Chat.py",      title="Live Chat", icon="💬"),
+        ],
+        "Practice": [
+            st.Page("pages/6_Practice.py",  title="Practice",  icon="🏋️"),
         ],
     }
 )
