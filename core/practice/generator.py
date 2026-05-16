@@ -1,7 +1,6 @@
 """core/practice/generator.py — Generate and cache practice items."""
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import struct
