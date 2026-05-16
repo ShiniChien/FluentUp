@@ -92,8 +92,8 @@ def _render_login() -> None:
             else:
                 # Check root first (always-on, not in DB)
                 root = build_root_user(
-                    secrets.get("root_username", "root"),
-                    secrets.get("root_password", ""),
+                    secrets.get("ROOT_USERNAME", secrets.get("root_username", "root")),
+                    secrets.get("ROOT_PASSWORD", secrets.get("root_password", "")),
                 )
                 if username.strip() == root["username"] and verify_password(password, root["password_hash"]):
                     st.session_state["current_user"] = root
@@ -251,6 +251,42 @@ def _render_section_stats() -> None:
     )
 
 
+# ── Admin panel — Scripts section ────────────────────────────────────────────
+def _render_section_scripts() -> None:
+    st.markdown("#### Scripts")
+
+    # ── Migrate vocabulary ────────────────────────────────────────────────────
+    st.markdown("**Migrate vocabulary: `notes` → `senses`**")
+    st.caption(
+        "Chuyển đổi các từ vựng còn lưu dạng cũ (`notes` string) sang schema mới (`senses` array). "
+        "Script này idempotent — chạy lại sẽ không ảnh hưởng đến dữ liệu đã migrate."
+    )
+
+    if store is None:
+        st.warning("Không có kết nối MongoDB.")
+        return
+
+    col_btn, col_status = st.columns([1, 4])
+    with col_btn:
+        run_clicked = st.button("▶ Chạy", key="btn_migrate_vocab", type="primary")
+
+    if run_clicked:
+        with st.spinner("Đang migrate..."):
+            try:
+                migrated = run_async(store.migrate_vocab())
+            except Exception as e:
+                st.error(f"Lỗi: {e}")
+                migrated = None
+
+        if migrated is not None:
+            if migrated == 0:
+                with col_status:
+                    st.success("Không có document nào cần migrate (đã migrate hết rồi).")
+            else:
+                with col_status:
+                    st.success(f"Đã migrate **{migrated}** document thành công.")
+
+
 # ── Admin panel ───────────────────────────────────────────────────────────────
 def _render_admin() -> None:
     user = current_user()
@@ -268,7 +304,7 @@ def _render_admin() -> None:
 
     st.divider()
 
-    tab_users, tab_provider, tab_stats = st.tabs(["👤 Users", "🤖 AI Provider", "📊 Stats"])
+    tab_users, tab_provider, tab_stats, tab_scripts = st.tabs(["👤 Users", "🤖 AI Provider", "📊 Stats", "🔧 Scripts"])
 
     with tab_users:
         _render_section_users()
@@ -276,6 +312,8 @@ def _render_admin() -> None:
         _render_section_provider()
     with tab_stats:
         _render_section_stats()
+    with tab_scripts:
+        _render_section_scripts()
 
 
 # ── App cards (regular user) ──────────────────────────────────────────────────

@@ -113,7 +113,12 @@ def start_evaluation(provider: TextProvider, task_type: str, topic: dict, essay:
 
     def _run():
         try:
-            result = asyncio.run(_evaluate_async(provider, task_type, topic, essay))
+            result = asyncio.run(asyncio.wait_for(
+                _evaluate_async(provider, task_type, topic, essay), timeout=115.0
+            ))
+        except asyncio.TimeoutError:
+            _logger.error("writing evaluation timed out after 115s")
+            result = {"error": "Evaluation timed out — please try again."}
         except Exception as exc:
             _logger.exception("writing evaluation failed (task_type=%s)", task_type)
             result = {"error": str(exc)}

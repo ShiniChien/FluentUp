@@ -236,7 +236,7 @@ def render_generating(secrets: dict) -> None:
                     api_key=secrets["gemini_api_key"],
                     model=secrets.get("live_model", LIVE_MODEL),
                     accent_instruction=accents[speaker],
-                ))
+                ), timeout=90.0)
             except Exception as exc:
                 st.error(f"Turn {i + 1} failed: {exc}")
                 st.session_state["echo_phase"] = "idle"
