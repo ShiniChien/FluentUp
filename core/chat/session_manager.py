@@ -50,7 +50,14 @@ class GeminiLiveSession:
     internal state across turns without needing history injection.
     """
 
-    def __init__(self, api_key: str, model: str, system_prompt: str, voice: str = "Kore") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        system_prompt: str,
+        voice: str = "Kore",
+        tools=None,         # types.Tool | None
+    ) -> None:
         self._api_key       = api_key
         self._model         = model
         self._system_prompt = system_prompt
@@ -74,6 +81,10 @@ class GeminiLiveSession:
         self._ready      = threading.Event()
         self._stop_event = threading.Event()
         self._error: str | None = None
+
+        self._tools = tools
+        self._tool_calls: list[dict] = []
+        self._tool_calls_lock = threading.Lock()
 
         self._loop   = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -143,6 +154,12 @@ class GeminiLiveSession:
         with self._msg_lock:
             return list(self._messages)
 
+    def drain_tool_calls(self) -> list[dict]:
+        """Return and clear all pending tool calls since last drain."""
+        with self._tool_calls_lock:
+            calls, self._tool_calls = self._tool_calls, []
+        return calls
+
     def stop(self) -> None:
         self._stop_event.set()
         try:
@@ -196,6 +213,8 @@ class GeminiLiveSession:
             cfg_kwargs["system_instruction"] = types.Content(
                 parts=[types.Part.from_text(text=self._system_prompt)]
             )
+        if self._tools is not None:
+            cfg_kwargs["tools"] = [self._tools]
 
         async with client.aio.live.connect(
             model=self._model, config=types.LiveConnectConfig(**cfg_kwargs)
@@ -236,6 +255,30 @@ class GeminiLiveSession:
                     return
 
                 sc = getattr(response, "server_content", None)
+
+                tc = getattr(response, "tool_call", None)
+                if tc is not None:
+                    for fn_call in getattr(tc, "function_calls", []) or []:
+                        call_dict = {
+                            "id": getattr(fn_call, "id", None),
+                            "name": getattr(fn_call, "name", ""),
+                            "args": dict(getattr(fn_call, "args", {}) or {}),
+                        }
+                        with self._tool_calls_lock:
+                            self._tool_calls.append(call_dict)
+                        try:
+                            await session.send_tool_response(
+                                function_responses=[
+                                    types.FunctionResponse(
+                                        id=call_dict["id"],
+                                        name=call_dict["name"],
+                                        response={"result": "ok"},
+                                    )
+                                ]
+                            )
+                        except Exception:
+                            pass
+
                 if sc is None:
                     continue
 
