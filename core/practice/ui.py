@@ -46,7 +46,7 @@ def _render_diff(tagged: list[tuple[str, str]]) -> None:
     st.markdown(f"<p>{parts}</p>", unsafe_allow_html=True)
 
 
-async def _fetch_or_generate_item(store, secrets, mode: str, topic: str, difficulty: str) -> dict | None:
+async def _fetch_or_generate_item(store, secrets, mode: str, topic: str, difficulty: str, voice: str = "Kore") -> dict | None:
     if store is not None:
         cached = await store.get_practice_items(topic=topic, difficulty=difficulty, limit=50)
         mode_items = [c for c in cached if c.get("mode") == mode]
@@ -62,7 +62,6 @@ async def _fetch_or_generate_item(store, secrets, mode: str, topic: str, difficu
     import random
     text = random.choice(sentences)
     api_key = secrets.get("gemini_api_key", "")
-    voice   = st.session_state.get("practice_voice", "Kore")
     pcm     = await tts_sentence(api_key, text, voice)
     wav     = pcm_to_wav(pcm)
     audio_b64 = base64.b64encode(wav).decode()
@@ -89,15 +88,16 @@ def render_dictation(secrets, store) -> None:
     with col2:
         difficulty = st.selectbox("Difficulty", _DIFFICULTIES, key="dict_difficulty")
     with col3:
-        st.selectbox("Voice", VOICES, key="practice_voice")
+        st.selectbox("Voice", VOICES, key="dict_voice")
 
     if st.button("🎲 New sentence", type="primary"):
         st.session_state.pop("dict_item", None)
         st.session_state.pop("dict_submitted", None)
 
     if "dict_item" not in st.session_state:
+        voice = st.session_state.get("dict_voice", "Kore")
         with st.spinner("Generating…"):
-            item = run_async(_fetch_or_generate_item(store, secrets, "dictation", topic, difficulty))
+            item = run_async(_fetch_or_generate_item(store, secrets, "dictation", topic, difficulty, voice))
         if item is None:
             st.error("Could not generate a practice item. Check your API keys.")
             return
@@ -136,15 +136,16 @@ def render_shadowing(secrets, store) -> None:
     with col2:
         difficulty = st.selectbox("Difficulty", _DIFFICULTIES, key="shad_difficulty")
     with col3:
-        st.selectbox("Voice", VOICES, key="practice_voice")
+        st.selectbox("Voice", VOICES, key="shad_voice")
 
     if st.button("🎲 New sentence", type="primary"):
         st.session_state.pop("shad_item", None)
         st.session_state.pop("shad_result", None)
 
     if "shad_item" not in st.session_state:
+        voice = st.session_state.get("shad_voice", "Kore")
         with st.spinner("Generating…"):
-            item = run_async(_fetch_or_generate_item(store, secrets, "shadowing", topic, difficulty))
+            item = run_async(_fetch_or_generate_item(store, secrets, "shadowing", topic, difficulty, voice))
         if item is None:
             st.error("Could not generate a practice item.")
             return
