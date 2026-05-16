@@ -35,18 +35,24 @@ def _start_next_part3_question_gen(prev_question: str, answer_wav: bytes) -> Non
 
     def _worker() -> None:
         try:
-            text, wav = asyncio.run(qgen.generate_next_part3_question(
-                prev_question=prev_question,
-                answer_wav=answer_wav,
-                part2_topic=part2_topic,
-                accent=accent,
-                profile=profile,
+            text, wav = asyncio.run(asyncio.wait_for(
+                qgen.generate_next_part3_question(
+                    prev_question=prev_question,
+                    answer_wav=answer_wav,
+                    part2_topic=part2_topic,
+                    accent=accent,
+                    profile=profile,
+                ),
+                timeout=float(QUESTION_GEN_TIMEOUT_SEC - 5),
             ))
             with _RESULT_LOCK:
                 result["text"] = text
                 result["wav"] = wav
+        except asyncio.TimeoutError:
+            _logger.error("part3 question gen timed out")
+            with _RESULT_LOCK:
+                result["error"] = "Question generation timed out."
         except Exception as exc:
-            _logger.exception("part3 question gen failed")
             with _RESULT_LOCK:
                 result["error"] = str(exc)
         finally:

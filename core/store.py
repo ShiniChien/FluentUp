@@ -70,15 +70,17 @@ class FluentUpStore:
 
     async def _migrate_vocab(self) -> None:
         """One-time migration: convert `notes` field → senses array."""
-        sample = await _maybe_await(self._vocabulary.find_one({"notes": {"$exists": True}}))
-        if sample is None:
-            return
+        await self.migrate_vocab()
+
+    async def migrate_vocab(self) -> int:
+        """Migrate legacy `notes` field → senses array. Returns number of docs migrated."""
         cursor = self._vocabulary.find({"notes": {"$exists": True}})
-        # Support both sync (mongomock) and async (Motor) cursors
         if inspect.isasyncgen(cursor) or hasattr(cursor, '__aiter__'):
             docs = await _maybe_await(cursor.to_list(length=10000))
         else:
             docs = list(cursor)
+        if not docs:
+            return 0
         for doc in docs:
             notes = doc.get("notes", "").strip()
             senses = (
@@ -89,7 +91,8 @@ class FluentUpStore:
                 {"_id": doc["_id"]},
                 {"$set": {"senses": senses}, "$unset": {"notes": ""}},
             ))
-        _logger.info("vocab migration complete")
+        _logger.info("vocab migration complete: %d docs", len(docs))
+        return len(docs)
 
     async def ping(self) -> bool:
         try:

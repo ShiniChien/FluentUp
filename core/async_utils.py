@@ -30,7 +30,15 @@ def get_bg_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-def run_async(coro):
+_DEFAULT_TIMEOUT = 120.0
+
+
+def run_async(coro, timeout: float = _DEFAULT_TIMEOUT):
     loop = get_bg_loop()
-    future = asyncio.run_coroutine_threadsafe(coro, loop)
-    return future.result()
+    future = asyncio.run_coroutine_threadsafe(
+        asyncio.wait_for(coro, timeout=timeout), loop
+    )
+    try:
+        return future.result()
+    except asyncio.TimeoutError:
+        raise TimeoutError(f"Operation timed out after {timeout:.0f}s — the AI may be slow, please try again.")
