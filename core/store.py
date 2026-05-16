@@ -55,7 +55,7 @@ class FluentUpStore:
         self._settings = db["settings"]
         self._reading_articles = db["reading_articles"]
         self._practice_items = db["practice_items"]
-        self._user_memory    = db["user_memory"]
+        self._user_memory = db["user_memory"]
 
     async def ensure_indexes(self) -> None:
         await self._vocabulary.create_index("user_id", background=True)
@@ -70,8 +70,7 @@ class FluentUpStore:
         await self._reading_articles.create_index([("created_at", -1)], background=True)
         await self._practice_items.create_index([("topic", 1), ("difficulty", 1)], background=True)
         await self._practice_items.create_index([("created_at", -1)], background=True)
-        await self._user_memory.create_index("user_id", background=True)
-        await self._user_memory.create_index([("created_at", -1)], background=True)
+        await self._user_memory.create_index([("user_id", 1), ("created_at", -1)], background=True)
         await self._migrate_vocab()
 
     async def _migrate_vocab(self) -> None:
@@ -393,7 +392,7 @@ class FluentUpStore:
             "mode": mode,
             "created_at": datetime.datetime.utcnow(),
         }
-        result = await _maybe_await(self._practice_items.insert_one(doc))
+        result = await _retry_write(self._practice_items.insert_one, doc)
         return str(result.inserted_id)
 
     async def get_practice_items(self, topic: str, difficulty: str, limit: int = 20) -> list[dict]:
@@ -403,10 +402,7 @@ class FluentUpStore:
         if difficulty:
             q["difficulty"] = difficulty
         cursor = self._practice_items.find(q, sort=[("created_at", -1)], limit=limit)
-        if hasattr(cursor, "to_list"):
-            docs = await _maybe_await(cursor.to_list(length=limit))
-        else:
-            docs = list(cursor)
+        docs = await cursor.to_list(length=limit)
         for d in docs:
             d["_id"] = str(d["_id"])
         return docs
@@ -419,23 +415,18 @@ class FluentUpStore:
             "fact": fact.strip(),
             "created_at": datetime.datetime.utcnow(),
         }
-        result = await _maybe_await(self._user_memory.insert_one(doc))
+        result = await _retry_write(self._user_memory.insert_one, doc)
         return str(result.inserted_id)
 
-    async def list_user_memory(self, user_id: str) -> list[dict]:
+    async def list_user_memory(self, user_id: str, limit: int = 200) -> list[dict]:
         cursor = self._user_memory.find(
             {"user_id": user_id}, sort=[("created_at", -1)]
         )
-        if hasattr(cursor, "to_list"):
-            docs = await _maybe_await(cursor.to_list(length=500))
-        else:
-            docs = list(cursor)
+        docs = await cursor.to_list(length=limit)
         for d in docs:
             d["_id"] = str(d["_id"])
         return docs
 
     async def delete_user_memory(self, memory_id: str) -> bool:
-        result = await _maybe_await(
-            self._user_memory.delete_one({"_id": ObjectId(memory_id)})
-        )
+        result = await _retry_write(self._user_memory.delete_one, {"_id": ObjectId(memory_id)})
         return result.deleted_count > 0
