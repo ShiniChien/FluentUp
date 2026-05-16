@@ -376,43 +376,51 @@ def _render_app() -> None:
                 st.session_state["_vocab_dialog_open"] = True
                 st.rerun()
 
-    _, col_speaking, _, col_listening, _, col_chat, _ = st.columns([1, 3, 0.5, 3, 0.5, 3, 1])
+    st.divider()
 
-    with col_speaking:
-        st.markdown(
-            '<div class="fu-card"><div class="icon">🗣️</div>'
-            '<h3>Speaking</h3>'
-            '<p>Luyện nói IELTS Part 1 / 2 / 3<br>với phản hồi thời gian thực từ AI.</p>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        if st.button("Vào Speaking →", type="primary", use_container_width=True):
-            st.switch_page("pages/1_Speaking.py")
+    # ── Row 1: 5 skill cards ─────────────────────────────────────────────────
+    st.markdown("### 🎓 Luyện kỹ năng IELTS")
+    skill_cols = st.columns(5)
+    _SKILLS = [
+        ("🗣️", "Speaking",  "Luyện nói IELTS Part 1/2/3\nvới phản hồi AI thời gian thực.", "pages/1_Speaking.py"),
+        ("🎧", "Listening", "Nghe hội thoại AI,\nđiền từ hoặc ghi chép.", "pages/2_Listening.py"),
+        ("✍️", "Writing",   "Viết Task 1 & 2,\nnhận phản hồi chi tiết từ AI.", "pages/4_Writing.py"),
+        ("📖", "Reading",   "Đọc báo thật,\ntrả lời câu hỏi IELTS style.", "pages/5_Reading.py"),
+        ("💬", "Live Chat", "Trò chuyện audio\ntrực tiếp với AI companion.", "pages/3_Chat.py"),
+    ]
+    for col, (icon, title, desc, page) in zip(skill_cols, _SKILLS):
+        with col:
+            st.markdown(
+                f'<div class="fu-card"><div class="icon">{icon}</div>'
+                f'<h3>{title}</h3><p>{desc}</p></div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            if st.button(f"Vào {title} →", type="primary", use_container_width=True, key=f"btn_{title}"):
+                st.switch_page(page)
 
-    with col_listening:
-        st.markdown(
-            '<div class="fu-card"><div class="icon">🎧</div>'
-            '<h3>Listening</h3>'
-            '<p>Nghe hội thoại AI, điền từ còn thiếu<br>hoặc luyện ghi chép toàn bộ.</p>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        if st.button("Vào Listening →", type="primary", use_container_width=True):
-            st.switch_page("pages/2_Listening.py")
+    st.markdown("")
 
-    with col_chat:
-        st.markdown(
-            '<div class="fu-card"><div class="icon">💬</div>'
-            '<h3>Live Chat</h3>'
-            '<p>Trò chuyện audio trực tiếp<br>với Gemini Live.</p>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        if st.button("Vào Live Chat →", type="primary", use_container_width=True):
-            st.switch_page("pages/3_Chat.py")
+    # ── Row 2: Practice section ──────────────────────────────────────────────
+    st.markdown("### 🏋️ Practice")
+    st.caption("Rèn luyện từng kỹ năng riêng lẻ, lặp đi lặp lại.")
+    practice_cols = st.columns(3)
+    _PRACTICE = [
+        ("🎙️", "Dictation",       "Nghe câu AI đọc,\ngõ lại từng chữ.", "dictation"),
+        ("🔁", "Shadowing",        "Nghe rồi nói lại — luyện\nphát âm và ngữ điệu.", "shadowing"),
+        ("🃏", "Vocab Flashcards", "Ôn từ vựng của bạn\ntheo kiểu flashcard.", "flashcards"),
+    ]
+    for col, (icon, title, desc, mode) in zip(practice_cols, _PRACTICE):
+        with col:
+            st.markdown(
+                f'<div class="fu-card"><div class="icon">{icon}</div>'
+                f'<h3>{title}</h3><p>{desc}</p></div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            if st.button("Bắt đầu →", type="secondary", use_container_width=True, key=f"btn_practice_{mode}"):
+                st.session_state["practice_mode"] = mode
+                st.switch_page("pages/6_Practice.py")
 
 
 # ── Provider toggle (root only) ───────────────────────────────────────────────
