@@ -92,8 +92,8 @@ def _render_login() -> None:
             else:
                 # Check root first (always-on, not in DB)
                 root = build_root_user(
-                    secrets.get("ROOT_USERNAME", secrets.get("root_username", "root")),
-                    secrets.get("ROOT_PASSWORD", secrets.get("root_password", "")),
+                    secrets.get("root_username", "root"),
+                    secrets.get("root_password", ""),
                 )
                 if username.strip() == root["username"] and verify_password(password, root["password_hash"]):
                     st.session_state["current_user"] = root

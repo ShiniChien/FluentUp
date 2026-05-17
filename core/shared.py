@@ -24,6 +24,8 @@ def load_secrets() -> dict:
         "openrouter_model":    st.secrets.get("OPENROUTER_MODEL", ""),
         "text_provider":       st.secrets.get("TEXT_PROVIDER", "openrouter"),
         "gemma_model":         st.secrets.get("GEMMA_MODEL", "gemma-4-31b-it"),
+        "root_username":      st.secrets.get("ROOT_USERNAME", "root"),
+        "root_password":      st.secrets.get("ROOT_PASSWORD", ""),
     }
 
 
