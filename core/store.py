@@ -65,7 +65,8 @@ class FluentUpStore:
         db = self._client["fluentup"]
         await db["writing_topics"].create_index([("task_type", 1)], background=True)
         await db["writing_topics"].create_index([("created_at", -1)], background=True)
-        await self._reading_articles.create_index("url", unique=True, background=True)
+        await self._reading_articles.create_index("link", unique=True, sparse=True, background=True)
+        await self._reading_articles.create_index("url", unique=True, sparse=True, background=True)  # legacy compat
         await self._reading_articles.create_index("category", background=True)
         await self._reading_articles.create_index([("created_at", -1)], background=True)
         await self._practice_items.create_index([("topic", 1), ("difficulty", 1)], background=True)
@@ -316,7 +317,9 @@ class FluentUpStore:
     # ── Reading articles ──────────────────────────────────────────────────────
 
     async def get_reading_article_by_url(self, url: str) -> dict | None:
-        doc = await self._reading_articles.find_one({"url": url})
+        doc = await self._reading_articles.find_one({"link": url})
+        if doc is None:
+            doc = await self._reading_articles.find_one({"url": url})
         if doc:
             doc["_id"] = str(doc["_id"])
         return doc
@@ -359,7 +362,6 @@ class FluentUpStore:
         """Insert a minimal record for a selected article. Returns doc_id string."""
         from pymongo.errors import DuplicateKeyError
         doc = {
-            "url":              link,   # keep "url" key for index compatibility
             "link":             link,
             "link_google_news": link_google_news,
             "topic":            topic,
@@ -372,7 +374,7 @@ class FluentUpStore:
             result = await _retry_write(self._reading_articles.insert_one, doc)
             return str(result.inserted_id)
         except DuplicateKeyError:
-            existing = await self._reading_articles.find_one({"url": link})
+            existing = await self._reading_articles.find_one({"link": link})
             return str(existing["_id"]) if existing else ""
 
     async def update_reading_markdown(self, doc_id: str, markdown_content: str) -> None:
