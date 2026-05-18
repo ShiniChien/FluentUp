@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import html
 import re
 from dataclasses import dataclass
@@ -7,93 +8,74 @@ from dataclasses import dataclass
 import feedparser
 import httpx
 
-RSS_FEEDS: dict[str, str] = {
-    "World News":  "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "Science":     "https://rss.sciam.com/ScientificAmerican-Global",
-    "Technology":  "https://www.wired.com/feed/rss",
-    "Environment": "https://www.theguardian.com/environment/rss",
-    "Business":    "https://feeds.reuters.com/reuters/businessNews",
-    "Health":      "https://feeds.bbci.co.uk/news/health/rss.xml",
+RSS_TOPICS: dict[str, str] = {
+    "World":         "WORLD",
+    "Nation":        "NATION",
+    "Business":      "BUSINESS",
+    "Technology":    "TECHNOLOGY",
+    "Entertainment": "ENTERTAINMENT",
+    "Sports":        "SPORTS",
+    "Science":       "SCIENCE",
+    "Health":        "HEALTH",
 }
 
-_MIN_WORDS = 400
-_MAX_WORDS = 900
-_MAX_TRIES = 5
-_TIMEOUT   = 15
-_MAX_CANDIDATES = _MAX_TRIES * 2
+_RSS_BASE   = "https://news.google.com/news/rss/headlines/section/topic/{topic}"
+_MAX_ITEMS  = 20
+_TIMEOUT    = 15
 
 
 @dataclass
-class ArticleData:
-    title:        str
-    body:         str
-    url:          str
-    category:     str
-    published_at: str
-
-
-def _word_count(text: str) -> int:
-    return len(text.split())
+class ArticleEntry:
+    title:    str
+    link:     str   # resolved (real) URL after following Google redirect
+    pub_date: str
 
 
 def _strip_html(raw: str) -> str:
     text = re.sub(r"<[^>]+>", " ", raw).strip()
-    text = html.unescape(text)
-    return text
+    return html.unescape(text)
 
 
-async def _fetch_body(url: str) -> str:
-    """Fetch page and extract readable text from <p> tags."""
+async def _resolve_redirect(url: str, client: httpx.AsyncClient) -> str:
+    """Follow Google redirect to get the real article URL."""
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=_TIMEOUT, follow_redirects=True,
-                                    headers={"User-Agent": "Mozilla/5.0"})
-        paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", resp.text, re.DOTALL)
-        body = "\n\n".join(_strip_html(p) for p in paragraphs if _strip_html(p))
-        return body.strip()
+        resp = await client.head(url, timeout=_TIMEOUT, follow_redirects=True,
+                                 headers={"User-Agent": "Mozilla/5.0"})
+        return str(resp.url)
     except (httpx.HTTPError, httpx.TimeoutException):
-        return ""
+        return url
 
 
-async def fetch_article(category: str) -> ArticleData:
-    """Fetch one suitable article from the RSS feed for `category`.
+async def fetch_article_list(topic_key: str) -> list[ArticleEntry]:
+    """Fetch Google News RSS for a topic and return up to _MAX_ITEMS entries.
 
-    Raises ValueError if no suitable article found after _MAX_TRIES attempts.
+    Each entry's link is resolved through Google's redirect to the real URL.
+    Raises ValueError on feed fetch failure.
     """
-    feed_url = RSS_FEEDS.get(category)
-    if not feed_url:
-        raise ValueError(f"Unknown category: {category!r}")
+    topic = RSS_TOPICS.get(topic_key)
+    if not topic:
+        raise ValueError(f"Unknown topic: {topic_key!r}")
 
+    feed_url = _RSS_BASE.format(topic=topic)
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(feed_url, timeout=_TIMEOUT, follow_redirects=True,
-                                        headers={"User-Agent": "Mozilla/5.0"})
-        feed = feedparser.parse(response.text)
-    except (httpx.HTTPError, httpx.TimeoutException) as exc:
-        raise ValueError(f"Failed to fetch RSS feed for category '{category}': {exc}") from exc
+            resp = await client.get(feed_url, timeout=_TIMEOUT, follow_redirects=True,
+                                    headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            feed = feedparser.parse(resp.text)
+            entries = feed.entries[:_MAX_ITEMS]
+            valid_entries = [e for e in entries if e.get("link", "")]
+            real_links = await asyncio.gather(
+                *(_resolve_redirect(e["link"], client) for e in valid_entries)
+            )
+            results: list[ArticleEntry] = []
+            for entry, real_link in zip(valid_entries, real_links):
+                title    = _strip_html(entry.get("title", "Untitled"))
+                pub_date = entry.get("published", "")
+                results.append(ArticleEntry(title=title, link=real_link, pub_date=pub_date))
+    except httpx.HTTPError as exc:
+        raise ValueError(f"Failed to fetch RSS for topic '{topic_key}': {exc}") from exc
 
-    entries = feed.entries[:_MAX_CANDIDATES]
-
-    tried = 0
-    for entry in entries:
-        if tried >= _MAX_TRIES:
-            break
-
-        url = entry.get("link", "")
-        if not url:
-            continue
-
-        tried += 1
-
-        title = _strip_html(entry.get("title", ""))
-        body  = await _fetch_body(url)
-
-        wc = _word_count(body)
-        if wc < _MIN_WORDS or wc > _MAX_WORDS:
-            continue
-
-        published = entry.get("published", "")
-        return ArticleData(title=title, body=body, url=url,
-                           category=category, published_at=published)
-
-    raise ValueError(f"No suitable article found in category '{category}' after {_MAX_TRIES} attempts.")
+    if not results:
+        raise ValueError(f"No entries found in RSS feed for topic '{topic_key}'.")
+    return results

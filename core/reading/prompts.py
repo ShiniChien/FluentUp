@@ -1,44 +1,51 @@
+CONTENT_REWRITE_PROMPT = """\
+You are an IELTS Reading passage editor.
+Below is raw markdown scraped from a news article.
+Rewrite it into a clean, coherent reading passage suitable for IELTS Academic Reading (band 6–8).
+- Remove ads, navigation text, author bios, and irrelevant sidebars.
+- Keep factual content, statistics, and quotes.
+- Use clear paragraphs. Each paragraph should be 3–6 sentences.
+- Target 400–600 words total.
+- Output ONLY the rewritten passage (plain text, no markdown headers).
+
+RAW CONTENT:
+{markdown}
+"""
+
 QUESTION_GEN_PROMPT = """\
-You are an IELTS Academic Reading question writer (band 6–8 difficulty).
+You are an IELTS Reading question writer.
+Given the passage below, generate exactly 10 fill-in-the-blank questions.
 
-Given the article below, produce exactly 20 questions in this JSON format:
+Rules:
+- Each blank answer must be taken VERBATIM from the passage (1–3 words).
+- Write the sentence with a single blank represented as ___.
+- The requirement for every question is: NO MORE THAN THREE WORDS from the passage.
+- Vary which part of the passage each question targets.
 
+Return ONLY valid JSON in this exact format:
 {{
-  "tfng": [
-    {{"statement": "...", "answer": "True", "paragraph_ref": 1}},
-    ... (6 items, answer is exactly "True", "False", or "Not Given")
-  ],
-  "headings": [
-    {{"paragraph_idx": 0, "correct_heading": "...", "options": ["...", "...", "...", "...", "..."]}},
-    ... (4 items, 5 options each, correct_heading is one of the options)
-  ],
-  "fill_blank": [
-    {{"sentence": "The economy ___ significantly.", "answer": "grew", "word_limit": "ONE WORD ONLY"}},
-    ... (5 items)
-  ],
-  "mcq": [
-    {{"question": "...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "answer": "A"}},
-    ... (5 items)
+  "requirement": "NO MORE THAN THREE WORDS from the passage",
+  "questions": [
+    {{"sentence": "The economy ___ significantly in 2023.", "answer": "grew rapidly"}},
+    ...
   ]
 }}
 
-Rules:
-- Every answer must be derivable from the article text only — no outside knowledge.
-- paragraph_ref is 1-indexed (first paragraph = 1).
-- paragraph_idx in headings is 0-indexed.
-- Respond with ONLY the JSON object. No preamble, no explanation.
-
-ARTICLE TITLE: {title}
-
-ARTICLE:
-{body}
+PASSAGE:
+{content}
 """
 
 QUESTION_GEN_RETRY_PROMPT = """\
-Your previous response was not valid JSON. Respond with ONLY the JSON object, no other text.
+Your previous response was not valid JSON. Respond with ONLY valid JSON matching this exact schema:
 
-ARTICLE TITLE: {title}
+{{
+  "requirement": "NO MORE THAN THREE WORDS from the passage",
+  "questions": [
+    {{"sentence": "The economy ___ significantly in 2023.", "answer": "grew rapidly"}},
+    ...10 items total...
+  ]
+}}
 
-ARTICLE:
-{body}
+PASSAGE:
+{content}
 """
