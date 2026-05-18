@@ -6,7 +6,7 @@ import streamlit as st
 
 from core.async_utils import run_async
 from core.shared import load_secrets, get_store, get_text_provider
-from core.writing.topic_pool import get_topic
+from core.writing.topic_pool import get_topic, _compute_p_generate
 from core.writing.ui.state import init_state
 from core.writing.ui.task1 import render_task1
 from core.writing.ui.task2 import render_task2
@@ -72,14 +72,31 @@ def _render_generating(secrets, store) -> None:
         st.session_state["writing_phase"] = "idle"
         st.rerun()
         return
-    with st.spinner("Đang tạo đề..."):
-        task_type = st.session_state["writing_task_type"]
+
+    task_type = st.session_state["writing_task_type"]
+    task_label = "Task 1" if task_type == "task1" else "Task 2"
+
+    with st.status(f"Đang chuẩn bị đề {task_label}...", expanded=True) as status:
+        st.write("🗂️ Kiểm tra kho đề bài...")
         try:
+            col   = store._client["fluentup"]["writing_topics"]
+            count = run_async(col.count_documents({"task_type": task_type}))
+            import random
+            p = _compute_p_generate(count)
+            will_generate = random.random() < p
+
+            if will_generate:
+                st.write(f"🤖 Tạo đề mới (pool: {count} đề)...")
+            else:
+                st.write(f"📋 Lấy đề từ kho ({count} đề có sẵn)...")
+
             topic = run_async(get_topic(store, task_type, get_text_provider(secrets)))
             st.session_state["writing_topic"] = topic
+            status.update(label="Đề đã sẵn sàng!", state="complete")
             st.session_state["writing_phase"] = "writing"
             st.rerun()
         except Exception as exc:
+            status.update(label=f"Lỗi khi tạo đề", state="error")
             st.session_state["writing_error"] = f"Không thể tạo đề: {exc}"
             st.session_state["writing_phase"] = "idle"
             st.rerun()
@@ -98,6 +115,9 @@ def _render_evaluating() -> None:
         st.session_state["writing_phase"] = "result"
         st.rerun()
         return
-    with st.spinner("Đang chấm bài..."):
-        time.sleep(_POLL_INTERVAL)
+
+    st.markdown("### ⏳ Đang chấm bài...")
+    progress = min(elapsed / _EVAL_TIMEOUT_SECS, 0.95)
+    st.progress(progress, text=f"Đã chờ {int(elapsed)}s — AI đang phân tích bài viết...")
+    time.sleep(_POLL_INTERVAL)
     st.rerun()

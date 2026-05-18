@@ -60,21 +60,28 @@ def render_generating(secrets: dict, store) -> None:
     st.title("📖 IELTS Reading Practice")
     category = st.session_state["reading_category"]
 
-    with st.spinner("Đang tìm bài và tạo câu hỏi..."):
+    with st.status("Đang chuẩn bị bài đọc...", expanded=True) as status:
+        # Step 1: fetch article
+        st.write("🔍 Tìm bài báo mới...")
         try:
             article = run_async(fetch_article(category))
         except ValueError as exc:
+            status.update(label="Lỗi khi tìm bài báo", state="error")
             st.session_state["reading_error"] = str(exc)
             st.session_state["reading_phase"] = "idle"
             st.rerun()
             return
 
-        # Dedup: reuse existing questions if article already in DB
+        st.write(f"📰 Đã tìm được: **{article.title}**")
+
+        # Step 2: dedup check
         existing = None
         if store is not None:
+            st.write("🗂️ Kiểm tra câu hỏi đã lưu...")
             existing = run_async(store.get_reading_article_by_url(article.url))
 
         if existing:
+            st.write("✅ Dùng lại câu hỏi từ database")
             st.session_state["reading_article"]   = {
                 "title": existing["title"], "body": existing["body"],
                 "url": existing["url"], "category": existing["category"],
@@ -83,15 +90,19 @@ def render_generating(secrets: dict, store) -> None:
             st.session_state["reading_questions"] = existing["questions"]
             st.session_state["reading_doc_id"]    = existing["_id"]
         else:
+            # Step 3: generate questions
+            st.write("🤖 Tạo câu hỏi IELTS...")
             try:
                 provider  = get_text_provider(secrets)
                 questions = run_async(generate_questions(article, provider))
             except Exception as exc:
+                status.update(label="Lỗi khi tạo câu hỏi", state="error")
                 st.session_state["reading_error"] = f"Không thể tạo câu hỏi: {exc}"
                 st.session_state["reading_phase"] = "idle"
                 st.rerun()
                 return
 
+            st.write(f"💾 Lưu bài vào database...")
             doc_id = None
             if store is not None:
                 try:
@@ -110,6 +121,8 @@ def render_generating(secrets: dict, store) -> None:
             }
             st.session_state["reading_questions"] = questions
             st.session_state["reading_doc_id"]    = doc_id
+
+        status.update(label="Sẵn sàng!", state="complete")
 
     st.session_state["reading_answers"] = {}
     st.session_state["reading_phase"]   = "reading"
