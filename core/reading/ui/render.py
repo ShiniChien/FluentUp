@@ -100,10 +100,11 @@ def render_article_list() -> None:
         with col_btn:
             if st.button("Chọn", key=f"pick_{i}", use_container_width=True):
                 st.session_state["reading_selected"] = {
-                    "title":    art.title,
-                    "link":     art.link,
-                    "pub_date": art.pub_date,
-                    "topic":    topic,
+                    "title":            art.title,
+                    "link":             art.link,
+                    "link_google_news": art.link_google_news,
+                    "pub_date":         art.pub_date,
+                    "topic":            topic,
                 }
                 st.session_state["reading_phase"] = "fetching_content"
                 st.rerun()
@@ -136,6 +137,7 @@ def render_fetching_content(secrets: dict, store) -> None:
                     topic=selected["topic"],
                     title=selected["title"],
                     link=selected["link"],
+                    link_google_news=selected["link_google_news"],
                     pub_date=selected["pub_date"],
                 ))
                 st.session_state["reading_doc_id"] = doc_id
