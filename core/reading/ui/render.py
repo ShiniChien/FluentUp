@@ -4,8 +4,8 @@ import streamlit as st
 
 from core.async_utils import run_async
 from core.auth import current_user
-from core.reading.rss_fetcher import fetch_article, RSS_FEEDS
-from core.reading.question_gen import generate_questions
+from core.reading.rss_fetcher import fetch_article_list, RSS_TOPICS
+from core.reading.content_gen import fetch_markdown, rewrite_content, generate_questions
 from core.reading.ui.scoring import score_all
 from core.reading.ui.state import reset_state
 from core.shared import get_text_provider
@@ -17,17 +17,17 @@ def render_idle(secrets: dict, store) -> None:
     if err := st.session_state.pop("reading_error", None):
         st.error(err)
 
-    category = st.selectbox(
+    topic = st.selectbox(
         "Chọn chủ đề",
-        options=list(RSS_FEEDS.keys()),
-        index=list(RSS_FEEDS.keys()).index(st.session_state["reading_category"]),
+        options=list(RSS_TOPICS.keys()),
+        index=list(RSS_TOPICS.keys()).index(st.session_state["reading_topic"]),
     )
-    st.session_state["reading_category"] = category
+    st.session_state["reading_topic"] = topic
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("▶ Bắt đầu bài mới", type="primary", use_container_width=True):
-            st.session_state["reading_phase"] = "generating"
+        if st.button("▶ Tìm bài báo", type="primary", use_container_width=True):
+            st.session_state["reading_phase"] = "fetching_list"
             st.rerun()
     with col2:
         if st.button("📋 Lịch sử", use_container_width=True):
@@ -50,92 +50,191 @@ def _show_history(store) -> None:
             score = attempt["score"]
             st.markdown(
                 f"**{doc['title']}**  \n"
-                f"{doc['category']} · {attempt['attempted_at'].strftime('%Y-%m-%d') if hasattr(attempt['attempted_at'], 'strftime') else attempt['attempted_at'][:10]}  \n"
+                f"{doc.get('topic', doc.get('category', ''))} · "
+                f"{attempt['attempted_at'].strftime('%Y-%m-%d') if hasattr(attempt['attempted_at'], 'strftime') else str(attempt['attempted_at'])[:10]}  \n"
                 f"Score: {score['raw']}/{score['total']} · Band **{score['band']}**"
             )
             st.divider()
 
 
-def render_generating(secrets: dict, store) -> None:
+def render_fetching_list(secrets: dict) -> None:
     st.title("📖 IELTS Reading Practice")
-    category = st.session_state["reading_category"]
+    topic = st.session_state["reading_topic"]
 
-    with st.status("Đang chuẩn bị bài đọc...", expanded=True) as status:
-        # Step 1: fetch article
-        st.write("🔍 Tìm bài báo mới...")
+    with st.status(f"Đang tải danh sách bài — {topic}...", expanded=True) as status:
+        st.write(f"🔍 Lấy feed từ Google News ({topic})...")
         try:
-            article = run_async(fetch_article(category))
+            articles = run_async(fetch_article_list(topic))
         except ValueError as exc:
-            status.update(label="Lỗi khi tìm bài báo", state="error")
+            status.update(label="Lỗi khi tải feed", state="error")
             st.session_state["reading_error"] = str(exc)
             st.session_state["reading_phase"] = "idle"
             st.rerun()
             return
+        st.write(f"✅ Tìm được {len(articles)} bài")
+        status.update(label=f"Đã tải {len(articles)} bài báo", state="complete")
 
-        st.write(f"📰 Đã tìm được: **{article.title}**")
+    st.session_state["reading_articles_list"] = articles
+    st.session_state["reading_phase"] = "article_list"
+    st.rerun()
 
-        # Step 2: dedup check
-        existing = None
+
+def render_article_list() -> None:
+    st.title("📖 Chọn bài báo để luyện đọc")
+    topic    = st.session_state["reading_topic"]
+    articles = st.session_state["reading_articles_list"]
+
+    st.caption(f"Chủ đề: **{topic}** — chọn 1 bài để bắt đầu")
+
+    if st.button("← Quay lại", use_container_width=False):
+        st.session_state["reading_phase"] = "idle"
+        st.rerun()
+
+    st.markdown("---")
+
+    for i, art in enumerate(articles):
+        col_title, col_btn = st.columns([5, 1])
+        with col_title:
+            date_str = art.pub_date[:16] if art.pub_date else ""
+            st.markdown(f"**{i + 1}. {art.title}**  \n{date_str}")
+        with col_btn:
+            if st.button("Chọn", key=f"pick_{i}", use_container_width=True):
+                st.session_state["reading_selected"] = {
+                    "title":    art.title,
+                    "link":     art.link,
+                    "pub_date": art.pub_date,
+                    "topic":    topic,
+                }
+                st.session_state["reading_phase"] = "fetching_content"
+                st.rerun()
+
+
+def render_fetching_content(secrets: dict, store) -> None:
+    st.title("📖 IELTS Reading Practice")
+    selected = st.session_state["reading_selected"]
+
+    with st.status("Đang chuẩn bị bài đọc...", expanded=True) as status:
+
+        # Check if already processed
         if store is not None:
-            st.write("🗂️ Kiểm tra câu hỏi đã lưu...")
-            existing = run_async(store.get_reading_article_by_url(article.url))
-
-        if existing:
-            st.write("✅ Dùng lại câu hỏi từ database")
-            st.session_state["reading_article"]   = {
-                "title": existing["title"], "body": existing["body"],
-                "url": existing["url"], "category": existing["category"],
-                "published_at": existing["published_at"],
-            }
-            st.session_state["reading_questions"] = existing["questions"]
-            st.session_state["reading_doc_id"]    = existing["_id"]
-        else:
-            # Step 3: generate questions
-            st.write("🤖 Tạo câu hỏi IELTS...")
-            try:
-                provider  = get_text_provider(secrets)
-                questions = run_async(generate_questions(article, provider))
-            except Exception as exc:
-                status.update(label="Lỗi khi tạo câu hỏi", state="error")
-                st.session_state["reading_error"] = f"Không thể tạo câu hỏi: {exc}"
-                st.session_state["reading_phase"] = "idle"
+            st.write("🗂️ Kiểm tra bài đã có trong database...")
+            existing = run_async(store.get_reading_article_by_url(selected["link"]))
+            if existing and existing.get("questions"):
+                st.write("✅ Dùng lại bài đã xử lý")
+                _load_from_existing(existing)
+                status.update(label="Sẵn sàng!", state="complete")
+                st.session_state["reading_phase"] = "reading"
                 st.rerun()
                 return
 
-            st.write(f"💾 Lưu bài vào database...")
-            doc_id = None
-            if store is not None:
-                try:
-                    doc_id = run_async(store.save_reading_article(
-                        url=article.url, title=article.title, body=article.body,
-                        category=article.category, published_at=article.published_at,
-                        questions=questions,
-                    ))
-                except Exception:
-                    pass
+        # Step 1: save stub
+        doc_id = None
+        if store is not None:
+            st.write("💾 Lưu thông tin bài báo...")
+            try:
+                doc_id = run_async(store.save_reading_stub(
+                    topic=selected["topic"],
+                    title=selected["title"],
+                    link=selected["link"],
+                    pub_date=selected["pub_date"],
+                ))
+                st.session_state["reading_doc_id"] = doc_id
+            except Exception:
+                pass
 
-            st.session_state["reading_article"]   = {
-                "title": article.title, "body": article.body,
-                "url": article.url, "category": article.category,
-                "published_at": article.published_at,
-            }
-            st.session_state["reading_questions"] = questions
-            st.session_state["reading_doc_id"]    = doc_id
+        # Step 2: fetch markdown via jina
+        st.write("📥 Tải nội dung bài báo qua Jina...")
+        try:
+            markdown = run_async(fetch_markdown(selected["link"]))
+        except Exception as exc:
+            status.update(label="Lỗi khi tải nội dung", state="error")
+            st.session_state["reading_error"] = f"Không thể tải nội dung: {exc}"
+            st.session_state["reading_phase"] = "idle"
+            st.rerun()
+            return
 
+        if store is not None and doc_id:
+            try:
+                run_async(store.update_reading_markdown(doc_id, markdown))
+            except Exception:
+                pass
+
+        # Step 3: LLM rewrite
+        st.write("✍️ AI đang biên tập lại bài đọc...")
+        provider = get_text_provider(secrets)
+        try:
+            llm_content = run_async(rewrite_content(markdown, provider))
+        except Exception as exc:
+            status.update(label="Lỗi khi biên tập nội dung", state="error")
+            st.session_state["reading_error"] = f"Không thể biên tập nội dung: {exc}"
+            st.session_state["reading_phase"] = "idle"
+            st.rerun()
+            return
+
+        if store is not None and doc_id:
+            try:
+                run_async(store.update_reading_llm_content(doc_id, llm_content))
+            except Exception:
+                pass
+
+        # Step 4: LLM question generation
+        st.write("🤖 AI đang tạo câu hỏi fill-in-the-blank...")
+        try:
+            q_data = run_async(generate_questions(llm_content, provider))
+        except Exception as exc:
+            status.update(label="Lỗi khi tạo câu hỏi", state="error")
+            st.session_state["reading_error"] = f"Không thể tạo câu hỏi: {exc}"
+            st.session_state["reading_phase"] = "idle"
+            st.rerun()
+            return
+
+        if store is not None and doc_id:
+            try:
+                run_async(store.update_reading_questions(
+                    doc_id=doc_id,
+                    requirement=q_data["requirement"],
+                    questions=q_data["questions"],
+                    answers=[q["answer"] for q in q_data["questions"]],
+                ))
+            except Exception:
+                pass
+
+        st.session_state["reading_article"] = {
+            "title":    selected["title"],
+            "link":     selected["link"],
+            "topic":    selected["topic"],
+            "pub_date": selected["pub_date"],
+            "body":     llm_content,
+        }
+        st.session_state["reading_questions"] = q_data
         status.update(label="Sẵn sàng!", state="complete")
 
-    st.session_state["reading_answers"] = {}
-    st.session_state["reading_phase"]   = "reading"
+    st.session_state["reading_phase"] = "reading"
     st.rerun()
+
+
+def _load_from_existing(doc: dict) -> None:
+    st.session_state["reading_doc_id"] = doc["_id"]
+    st.session_state["reading_article"] = {
+        "title":    doc["title"],
+        "link":     doc.get("link", doc.get("url", "")),
+        "topic":    doc.get("topic", ""),
+        "pub_date": doc.get("pub_date", ""),
+        "body":     doc.get("llm_content", doc.get("body", "")),
+    }
+    st.session_state["reading_questions"] = {
+        "requirement": doc.get("requirement", "NO MORE THAN THREE WORDS"),
+        "questions":   doc.get("questions", []),
+    }
 
 
 def render_reading() -> None:
     article   = st.session_state["reading_article"]
-    questions = st.session_state["reading_questions"]
+    q_data    = st.session_state["reading_questions"]
     answers: dict = st.session_state["reading_answers"]
 
     st.title(f"📖 {article['title']}")
-    st.caption(f"{article['category']} · {article.get('published_at', '')[:16]}")
+    st.caption(f"{article.get('topic', '')} · {article.get('pub_date', '')[:16]}")
 
     col_article, col_questions = st.columns([1, 1])
 
@@ -149,12 +248,16 @@ def render_reading() -> None:
 
     with col_questions:
         st.markdown("### Câu hỏi")
+        requirement = q_data.get("requirement", "NO MORE THAN THREE WORDS")
+        st.caption(f"Điền vào chỗ trống — {requirement}")
         with st.form("reading_form"):
-            _render_tfng(questions.get("tfng", []), answers)
-            _render_headings(questions.get("headings", []), answers)
-            _render_fill_blank(questions.get("fill_blank", []), answers)
-            _render_mcq(questions.get("mcq", []), answers)
-
+            for i, q in enumerate(q_data.get("questions", [])):
+                key = f"fill_{i}"
+                answers[key] = st.text_input(
+                    f"{i + 1}. {q['sentence']}",
+                    value=answers.get(key, ""),
+                    key=f"inp_{key}",
+                )
             submitted = st.form_submit_button("✔ Nộp bài", type="primary", use_container_width=True)
 
     if submitted:
@@ -163,81 +266,14 @@ def render_reading() -> None:
         st.rerun()
 
 
-def _render_tfng(questions: list[dict], answers: dict) -> None:
-    if not questions:
-        return
-    with st.expander("Part 1 — True / False / Not Given", expanded=True):
-        st.caption("Do the following statements agree with the information in the article?")
-        for i, q in enumerate(questions):
-            key = f"tfng_{i}"
-            answers[key] = st.radio(
-                f"{i + 1}. {q['statement']}",
-                options=["True", "False", "Not Given"],
-                index=["True", "False", "Not Given"].index(answers.get(key, "Not Given")),
-                key=f"radio_{key}",
-                horizontal=True,
-            )
-
-
-def _render_headings(questions: list[dict], answers: dict) -> None:
-    if not questions:
-        return
-    with st.expander("Part 2 — Matching Headings", expanded=True):
-        st.caption("Choose the most suitable heading for each paragraph.")
-        for i, q in enumerate(questions):
-            key = f"headings_{i}"
-            opts = q["options"]
-            prev = answers.get(key, opts[0])
-            idx  = opts.index(prev) if prev in opts else 0
-            answers[key] = st.selectbox(
-                f"Paragraph {q['paragraph_idx'] + 1}",
-                options=opts,
-                index=idx,
-                key=f"sel_{key}",
-            )
-
-
-def _render_fill_blank(questions: list[dict], answers: dict) -> None:
-    if not questions:
-        return
-    with st.expander("Part 3 — Fill in the Blank", expanded=True):
-        st.caption("Complete each sentence using NO MORE THAN the specified number of words from the article.")
-        for i, q in enumerate(questions):
-            key = f"fill_blank_{i}"
-            answers[key] = st.text_input(
-                f"{i + 1}. {q['sentence']}  ({q['word_limit']})",
-                value=answers.get(key, ""),
-                key=f"inp_{key}",
-            )
-
-
-def _render_mcq(questions: list[dict], answers: dict) -> None:
-    if not questions:
-        return
-    with st.expander("Part 4 — Multiple Choice", expanded=True):
-        for i, q in enumerate(questions):
-            key  = f"mcq_{i}"
-            opts = list(q["options"].keys())
-            labels = [f"{k}: {v}" for k, v in q["options"].items()]
-            prev   = answers.get(key, opts[0])
-            idx    = opts.index(prev) if prev in opts else 0
-            chosen = st.radio(
-                f"{i + 1}. {q['question']}",
-                options=labels,
-                index=idx,
-                key=f"radio_{key}",
-            )
-            answers[key] = chosen[0] if chosen else opts[0]
-
-
 def render_result(secrets: dict, store) -> None:
     article   = st.session_state["reading_article"]
-    questions = st.session_state["reading_questions"]
+    q_data    = st.session_state["reading_questions"]
     answers   = st.session_state["reading_answers"]
     score     = st.session_state["reading_score"]
 
     if score is None:
-        score = score_all(questions, answers)
+        score = score_all(q_data, answers)
         st.session_state["reading_score"] = score
 
         user    = current_user()
@@ -247,7 +283,8 @@ def render_result(secrets: dict, store) -> None:
             try:
                 run_async(store.push_reading_attempt(
                     doc_id=doc_id, user_id=user_id,
-                    answers=answers, score={"raw": score["raw"], "total": score["total"], "band": score["band"]},
+                    answers=answers,
+                    score={"raw": score["raw"], "total": score["total"], "band": score["band"]},
                 ))
             except Exception:
                 pass
@@ -260,29 +297,15 @@ def render_result(secrets: dict, store) -> None:
     col3.metric("Tỉ lệ đúng", f"{int(score['raw'] / (score['total'] or 1) * 100)}%")
 
     st.markdown("---")
-
-    _render_result_section("True / False / Not Given", score["tfng"],
-                           [q["statement"] for q in questions.get("tfng", [])])
-    _render_result_section("Matching Headings", score["headings"],
-                           [f"Paragraph {q['paragraph_idx'] + 1}" for q in questions.get("headings", [])])
-    _render_result_section("Fill in the Blank", score["fill_blank"],
-                           [q["sentence"] for q in questions.get("fill_blank", [])])
-    _render_result_section("Multiple Choice", score["mcq"],
-                           [q["question"] for q in questions.get("mcq", [])])
+    st.markdown("### Chi tiết")
+    for i, r in enumerate(score.get("fill_blank", [])):
+        q    = q_data["questions"][i]
+        icon = "✅" if r["correct"] else "❌"
+        st.markdown(f"{icon} **{i + 1}.** {q['sentence']}")
+        if not r["correct"]:
+            st.caption(f"Bạn trả lời: `{r['user']}` · Đúng: `{r['expected']}`")
 
     st.markdown("---")
     if st.button("▶ Làm bài mới", type="primary"):
         reset_state()
         st.rerun()
-
-
-def _render_result_section(title: str, results: list[dict], labels: list[str]) -> None:
-    if not results:
-        return
-    correct = sum(1 for r in results if r["correct"])
-    with st.expander(f"{title} — {correct}/{len(results)}", expanded=True):
-        for label, r in zip(labels, results):
-            icon = "✅" if r["correct"] else "❌"
-            st.markdown(f"{icon} **{label}**")
-            if not r["correct"]:
-                st.caption(f"Bạn trả lời: _{r['user'] or '(trống)'}_ → Đáp án đúng: **{r['expected']}**")

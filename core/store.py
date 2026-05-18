@@ -348,6 +348,62 @@ class FluentUpStore:
             existing = await self._reading_articles.find_one({"url": url})
             return str(existing["_id"]) if existing else ""
 
+    async def save_reading_stub(
+        self,
+        topic: str,
+        title: str,
+        link: str,
+        pub_date: str,
+    ) -> str:
+        """Insert a minimal record for a selected article. Returns doc_id string."""
+        from pymongo.errors import DuplicateKeyError
+        doc = {
+            "url":        link,   # keep "url" key for index compatibility
+            "link":       link,
+            "topic":      topic,
+            "title":      title,
+            "pub_date":   pub_date,
+            "created_at": datetime.datetime.utcnow(),
+            "attempts":   [],
+        }
+        try:
+            result = await _retry_write(self._reading_articles.insert_one, doc)
+            return str(result.inserted_id)
+        except DuplicateKeyError:
+            existing = await self._reading_articles.find_one({"url": link})
+            return str(existing["_id"]) if existing else ""
+
+    async def update_reading_markdown(self, doc_id: str, markdown_content: str) -> None:
+        await _retry_write(
+            self._reading_articles.update_one,
+            {"_id": ObjectId(doc_id)},
+            {"$set": {"markdown_content": markdown_content}},
+        )
+
+    async def update_reading_llm_content(self, doc_id: str, llm_content: str) -> None:
+        await _retry_write(
+            self._reading_articles.update_one,
+            {"_id": ObjectId(doc_id)},
+            {"$set": {"llm_content": llm_content}},
+        )
+
+    async def update_reading_questions(
+        self,
+        doc_id: str,
+        requirement: str,
+        questions: list[dict],
+        answers: list[str],
+    ) -> None:
+        await _retry_write(
+            self._reading_articles.update_one,
+            {"_id": ObjectId(doc_id)},
+            {"$set": {
+                "requirement": requirement,
+                "questions":   questions,
+                "answers":     answers,
+            }},
+        )
+
     async def push_reading_attempt(
         self,
         doc_id: str,
