@@ -353,18 +353,20 @@ class FluentUpStore:
         topic: str,
         title: str,
         link: str,
+        link_google_news: str,
         pub_date: str,
     ) -> str:
         """Insert a minimal record for a selected article. Returns doc_id string."""
         from pymongo.errors import DuplicateKeyError
         doc = {
-            "url":        link,   # keep "url" key for index compatibility
-            "link":       link,
-            "topic":      topic,
-            "title":      title,
-            "pub_date":   pub_date,
-            "created_at": datetime.datetime.utcnow(),
-            "attempts":   [],
+            "url":              link,   # keep "url" key for index compatibility
+            "link":             link,
+            "link_google_news": link_google_news,
+            "topic":            topic,
+            "title":            title,
+            "pub_date":         pub_date,
+            "created_at":       datetime.datetime.utcnow(),
+            "attempts":         [],
         }
         try:
             result = await _retry_write(self._reading_articles.insert_one, doc)

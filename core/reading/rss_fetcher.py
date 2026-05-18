@@ -26,9 +26,10 @@ _TIMEOUT    = 15
 
 @dataclass
 class ArticleEntry:
-    title:    str
-    link:     str   # resolved (real) URL after following Google redirect
-    pub_date: str
+    title:            str
+    link:             str   # resolved real article URL (for Jina fetch + dedup)
+    link_google_news: str   # original Google News redirect URL
+    pub_date:         str
 
 
 def _strip_html(raw: str) -> str:
@@ -36,20 +37,26 @@ def _strip_html(raw: str) -> str:
     return html.unescape(text)
 
 
-async def _resolve_redirect(url: str, client: httpx.AsyncClient) -> str:
-    """Follow Google redirect to get the real article URL."""
+async def _resolve_redirect(google_url: str, client: httpx.AsyncClient) -> str:
+    """Follow Google News redirect via GET to get the real article URL.
+
+    HEAD requests are blocked by Google; GET with follow_redirects resolves correctly.
+    Falls back to the original URL on any error.
+    """
     try:
-        resp = await client.head(url, timeout=_TIMEOUT, follow_redirects=True,
-                                 headers={"User-Agent": "Mozilla/5.0"})
+        resp = await client.get(
+            google_url, timeout=_TIMEOUT, follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
         return str(resp.url)
-    except (httpx.HTTPError, httpx.TimeoutException):
-        return url
+    except httpx.HTTPError:
+        return google_url
 
 
 async def fetch_article_list(topic_key: str) -> list[ArticleEntry]:
     """Fetch Google News RSS for a topic and return up to _MAX_ITEMS entries.
 
-    Each entry's link is resolved through Google's redirect to the real URL.
+    Each entry resolves its Google redirect URL to the real article URL via GET.
     Raises ValueError on feed fetch failure.
     """
     topic = RSS_TOPICS.get(topic_key)
@@ -72,7 +79,12 @@ async def fetch_article_list(topic_key: str) -> list[ArticleEntry]:
             for entry, real_link in zip(valid_entries, real_links):
                 title    = _strip_html(entry.get("title", "Untitled"))
                 pub_date = entry.get("published", "")
-                results.append(ArticleEntry(title=title, link=real_link, pub_date=pub_date))
+                results.append(ArticleEntry(
+                    title=title,
+                    link=real_link,
+                    link_google_news=entry["link"],
+                    pub_date=pub_date,
+                ))
     except httpx.HTTPError as exc:
         raise ValueError(f"Failed to fetch RSS for topic '{topic_key}': {exc}") from exc
 
