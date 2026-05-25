@@ -13,6 +13,14 @@ _QUESTION_TYPES = ["en_vi", "vi_en", "multiple_choice"]
 _WEIGHTS = [6, 2, 2]
 
 
+def _active_meaning(entry: dict[str, Any]) -> str:
+    senses = entry.get("senses", [])
+    for s in senses:
+        if s.get("status") == "ACTIVE":
+            return s["meaning"]
+    return senses[0]["meaning"] if senses else ""
+
+
 def build_question(
     entry: dict[str, Any],
     global_pool: list[dict[str, Any]],
@@ -20,33 +28,33 @@ def build_question(
 ) -> dict[str, Any]:
     """Build one quiz question dict from a vocabulary entry."""
     q_type = force_type or random.choices(_QUESTION_TYPES, weights=_WEIGHTS, k=1)[0]
+    meaning = _active_meaning(entry)
 
     if q_type == "en_vi":
         return {
             "type": "SHORT_ANSWER",
             "question_text": entry["word"],
-            "correct_answer": entry["notes"],
+            "correct_answer": meaning,
             "choices": None,
         }
 
     if q_type == "vi_en":
         return {
             "type": "SHORT_ANSWER",
-            "question_text": entry["notes"],
+            "question_text": meaning,
             "correct_answer": entry["word"],
             "choices": None,
         }
 
-    # multiple_choice  random direction 50-50
+    # multiple_choice  random direction 50-50
     if random.random() < 0.5:
         question_text = entry["word"]
-        correct_answer = entry["notes"]
-        distractor_pool = [e["notes"] for e in global_pool if e["notes"] != correct_answer]
+        correct_answer = meaning
+        distractor_pool = [_active_meaning(e) for e in global_pool if _active_meaning(e) != correct_answer]
     else:
-        question_text = entry["notes"]
+        question_text = meaning
         correct_answer = entry["word"]
         distractor_pool = [e["word"] for e in global_pool if e["word"] != correct_answer]
-
     distractors = random.sample(distractor_pool, min(3, len(distractor_pool)))
     choices = [correct_answer] + distractors
     random.shuffle(choices)
@@ -166,7 +174,9 @@ def fetch_all_vocab(mongo_uri: str, username: str = "", password: str = "") -> t
         serverSelectionTimeoutMS=10000,
     )
     db = client["fluentup"]
-    all_docs = list(db["vocabulary"].find({}, {"_id": 0, "word": 1, "notes": 1, "user_id": 1}))
+    all_docs = list(db["vocabulary"].find({}, {"_id": 0, "word": 1, "senses": 1, "user_id": 1}))
+    # keep only docs that have at least one sense with a meaning
+    all_docs = [d for d in all_docs if d.get("senses")]
     client.close()
 
     per_user: dict[str, list[dict]] = {}
