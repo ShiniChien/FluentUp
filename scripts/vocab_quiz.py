@@ -21,6 +21,18 @@ def _active_meaning(entry: dict[str, Any]) -> str:
     return senses[0]["meaning"] if senses else ""
 
 
+def _all_meanings(entry: dict[str, Any]) -> list[str]:
+    """Return all meanings from all senses (deduplicated, non-empty)."""
+    seen: set[str] = set()
+    result = []
+    for s in entry.get("senses", []):
+        m = s.get("meaning", "").strip()
+        if m and m not in seen:
+            seen.add(m)
+            result.append(m)
+    return result
+
+
 def build_question(
     entry: dict[str, Any],
     global_pool: list[dict[str, Any]],
@@ -29,12 +41,15 @@ def build_question(
     """Build one quiz question dict from a vocabulary entry."""
     q_type = force_type or random.choices(_QUESTION_TYPES, weights=_WEIGHTS, k=1)[0]
     meaning = _active_meaning(entry)
+    all_meanings = _all_meanings(entry)
 
     if q_type == "en_vi":
+        display = " / ".join(all_meanings)
         return {
             "type": "SHORT_ANSWER",
             "question_text": entry["word"],
-            "correct_answer": meaning,
+            "correct_answer": display,
+            "correct_answers": all_meanings,
             "choices": None,
         }
 
@@ -43,6 +58,7 @@ def build_question(
             "type": "SHORT_ANSWER",
             "question_text": meaning,
             "correct_answer": entry["word"],
+            "correct_answers": [entry["word"]],
             "choices": None,
         }
 
@@ -63,6 +79,7 @@ def build_question(
         "type": "MULTIPLE_CHOICE",
         "question_text": question_text,
         "correct_answer": correct_answer,
+        "correct_answers": [correct_answer],
         "choices": choices,
     }
 
@@ -77,10 +94,13 @@ def generate_quiz_html(
     def _escape(s: str) -> str:
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
+    import json as _json
+
     items_html = ""
     for idx, q in enumerate(questions):
         correct_escaped = _escape(q["correct_answer"])
         question_escaped = _escape(q["question_text"])
+        alts_json = _escape(_json.dumps(q["correct_answers"], ensure_ascii=False))
 
         if q["type"] == "SHORT_ANSWER":
             answer_html = f'<input type="text" class="ans" autocomplete="off" style="width:300px;padding:4px;font-size:1em">'
@@ -92,7 +112,7 @@ def generate_quiz_html(
             answer_html = f'<div>{opts}</div>'
 
         items_html += f"""
-<div class="q" data-correct="{correct_escaped}" style="margin:16px 0;padding:12px;border:1px solid #ddd;border-radius:6px">
+<div class="q" data-correct="{correct_escaped}" data-alts="{alts_json}" style="margin:16px 0;padding:12px;border:1px solid #ddd;border-radius:6px">
   <p style="margin:0 0 8px;font-weight:bold">{idx + 1}. {question_escaped}</p>
   {answer_html}
   <p class="feedback" style="margin:6px 0 0;display:none"></p>
@@ -124,14 +144,21 @@ function submitQuiz(){{
   var qs=document.querySelectorAll('.q');
   var correct=0;
   qs.forEach(function(q){{
-    var expected=q.dataset.correct.trim().toLowerCase();
+    var alts=JSON.parse(q.dataset.alts).map(function(a){{return a.trim().toLowerCase();}});
     var input=q.querySelector('input[type="text"]');
     var ans='';
     if(input){{ans=input.value.trim().toLowerCase();}}
     else{{var r=q.querySelector('input[type="radio"]:checked');ans=r?r.value.trim().toLowerCase():'';}}
     var fb=q.querySelector('.feedback');
     fb.style.display='block';
-    if(ans===expected){{q.classList.add('correct');correct++;fb.textContent='✓ Correct';fb.style.color='green';}}
+    var ok=false;
+    if(input){{
+      var parts=ans.split('/').map(function(p){{return p.trim();}}).filter(function(p){{return p!==''}});
+      ok=parts.length>0&&parts.every(function(p){{return alts.indexOf(p)!==-1;}});
+    }}else{{
+      ok=alts.indexOf(ans)!==-1;
+    }}
+    if(ok){{q.classList.add('correct');correct++;fb.textContent='✓ Correct';fb.style.color='green';}}
     else{{q.classList.add('wrong');fb.textContent='✗ Đáp án: '+q.dataset.correct;fb.style.color='red';}}
   }});
   var sc=document.getElementById('score');
