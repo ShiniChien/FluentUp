@@ -3,7 +3,7 @@ import streamlit as st
 
 from core.async_utils import run_async
 from core.shared import load_secrets, get_store
-from core.vocab_sidebar import render_vocab_sidebar
+from core.vocab import render_vocab_sidebar
 
 st.set_page_config(
     page_title="FluentUp",
@@ -14,7 +14,8 @@ st.set_page_config(
 nav_pages = st.navigation(
     {
         "FluentUp": [
-            st.Page("pages/0_Home.py",      title="Home",      icon="🏠", default=True),
+            st.Page("pages/0_Home.py",       title="Home",       icon="🏠", default=True),
+            st.Page("pages/7_Vocabulary.py",  title="Vocabulary", icon="📖"),
         ],
         "Skills": [
             st.Page("pages/1_Speaking.py",  title="Speaking",  icon="🗣️"),
