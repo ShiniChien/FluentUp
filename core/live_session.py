@@ -26,7 +26,7 @@ import numpy as np
 import google.genai as genai
 from google.genai import types
 
-from core.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS
+from core.config import LIVE_MODEL, INPUT_RATE, OUTPUT_RATE, CHUNK_MS, GEMINI_API_VERSION
 
 CHUNK_BYTES = INPUT_RATE * 2 * CHUNK_MS // 1000  # e.g. 100 ms → 3200 bytes
 
@@ -157,7 +157,7 @@ class GeminiLiveSession:
     ) -> LiveResult:
         client = genai.Client(
             api_key=self._api_key,
-            http_options={"api_version": "v1beta"},
+            http_options={"api_version": GEMINI_API_VERSION},
         )
 
         cfg: dict = dict(

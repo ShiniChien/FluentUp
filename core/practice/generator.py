@@ -8,6 +8,7 @@ from google import genai
 from google.genai import types
 
 from core.live_session import pcm_to_wav
+from core.config import GEMINI_API_VERSION
 
 _logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ async def generate_sentences(
 
 async def tts_sentence(api_key: str, text: str, voice: str = "Kore") -> bytes:
     """Convert text to speech using Gemini TTS. Returns raw PCM bytes."""
-    client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
+    client = genai.Client(api_key=api_key, http_options={"api_version": GEMINI_API_VERSION})
     response = await client.aio.models.generate_content(
         model="gemini-2.5-flash-preview-tts",
         contents=text,

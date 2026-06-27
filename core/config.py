@@ -8,6 +8,9 @@ INPUT_RATE  = 16000  # Hz — Gemini Live expects 16 kHz PCM input
 OUTPUT_RATE = 24000  # Hz — Gemini Live audio output is 24 kHz PCM
 CHUNK_MS    = 100    # milliseconds per audio chunk sent to Live API
 
+# ── Gemini API version ────────────────────────────────────────────
+GEMINI_API_VERSION = "v1beta"
+
 # ── English accents (used by both Speaking examiner TTS and Listening dialogue) ─
 
 ENGLISH_ACCENTS: dict[str, str] = {
