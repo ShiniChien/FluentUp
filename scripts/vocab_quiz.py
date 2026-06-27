@@ -33,13 +33,36 @@ def _all_meanings(entry: dict[str, Any]) -> list[str]:
     return result
 
 
+def _restricted_types(entry: dict, global_pool: list[dict]) -> list[str] | None:
+    """Return restricted type list if entry matches any filter rule, else None."""
+    if len(_all_meanings(entry)) > 1:
+        return ["en_vi", "multiple_choice"]
+    if len(entry["word"].split()) > 1:
+        return ["en_vi", "multiple_choice"]
+    meanings = set(_all_meanings(entry))
+    for other in global_pool:
+        if other["_id"] == entry["_id"]:
+            continue
+        if meanings & set(_all_meanings(other)):
+            return ["en_vi", "multiple_choice"]
+    return None
+
+
 def build_question(
     entry: dict[str, Any],
     global_pool: list[dict[str, Any]],
     force_type: str | None = None,
 ) -> dict[str, Any]:
     """Build one quiz question dict from a vocabulary entry."""
-    q_type = force_type or random.choices(_QUESTION_TYPES, weights=_WEIGHTS, k=1)[0]
+    allowed = _restricted_types(entry, global_pool)
+    if force_type:
+        if force_type in (allowed or _QUESTION_TYPES):
+            q_type = force_type
+        else:
+            q_type = (allowed or _QUESTION_TYPES)[0]
+    else:
+        pool = allowed or _QUESTION_TYPES
+        q_type = random.choices(pool, k=1)[0]
     meaning = _active_meaning(entry)
     all_meanings = _all_meanings(entry)
 
