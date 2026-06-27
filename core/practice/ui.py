@@ -9,7 +9,8 @@ import streamlit as st
 from core.async_utils import run_async
 from core.auth import current_user
 from core.config import VOICES
-from core.practice.generator import generate_sentences, tts_sentence, pcm_to_wav
+from core.practice.generator import generate_sentences, tts_sentence
+from core.live_session import pcm_to_wav
 from core.shared import get_store, get_text_provider, load_secrets
 
 _TOPICS = ["Daily life", "Technology", "Travel", "Food", "Work", "Education", "Environment"]
