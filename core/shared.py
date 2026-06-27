@@ -68,8 +68,6 @@ def _load_provider_config_from_db(secrets: dict) -> dict | None:
 
 def _build_config_from_secrets(secrets: dict) -> dict:
     name = secrets.get("text_provider", "openrouter")
-    if name == "gemma":
-        name = "google"
     return {
         "active_provider": name,
         "providers": {

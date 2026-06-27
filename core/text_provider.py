@@ -63,17 +63,13 @@ class GoogleProvider(TextProvider):
         return (response.text or "").strip()
 
 
-# Backwards-compatible alias — remove after all callers migrated
-GemmaProvider = GoogleProvider
-
-
 def build_provider(
     name: str,
     secrets: dict,
     provider_config: dict | None = None,
 ) -> TextProvider:
     """Instantiate provider from name + secrets (fallback) or provider_config (DB)."""
-    if name in ("google", "gemma"):
+    if name == "google":
         cfg = provider_config or {}
         model           = cfg.get("model") or secrets.get("gemma_model", "gemma-4-31b-it")
         thinking_budget = cfg.get("thinking_budget")  # None for Gemma models
@@ -82,7 +78,8 @@ def build_provider(
             model=model,
             thinking_budget=thinking_budget,
         )
-    # openrouter (default)
+    if name != "openrouter":
+        raise ValueError(f"Unknown text provider: {name!r}. Valid: 'google', 'openrouter'")
     cfg = provider_config or {}
     return OpenRouterProvider(
         base_url=cfg.get("base_url") or secrets.get("openrouter_base_url", ""),

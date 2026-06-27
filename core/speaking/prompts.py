@@ -104,9 +104,6 @@ def get_examiner_prompt(
     return vi_instruction + _EXAMINER_LIVE_BODY.format(question=question, part=part)
 
 
-# Keep for backwards compatibility
-EXAMINER_LIVE_SYSTEM = _EXAMINER_LIVE_BODY
-
 # ── Question generation ───────────────────────────────────────────────────────
 
 PART1_OPENING_QUESTION_PROMPT = """You are an IELTS Speaking examiner starting a Part 1 interview.

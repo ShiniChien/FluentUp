@@ -36,7 +36,7 @@ Secrets are loaded from `.streamlit/secrets.toml` via `st.secrets`. Required key
 | `OPENROUTER_BASE_URL` | OpenRouter base URL |
 | `OPENROUTER_API_KEY` | OpenRouter API key |
 | `OPENROUTER_MODEL` | Model ID passed to OpenRouter |
-| `TEXT_PROVIDER` | `"openrouter"` or `"gemma"` (default: `"openrouter"`) |
+| `TEXT_PROVIDER` | `"openrouter"` or `"google"` (default: `"openrouter"`) |
 | `GEMMA_MODEL` | Gemma model ID (default: `"gemma-4-31b-it"`) |
 | `MONGODB_URI` | MongoDB connection string |
 | `MONGODB_USERNAME` / `MONGODB_PASSWORD` | MongoDB credentials |
