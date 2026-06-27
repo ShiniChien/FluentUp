@@ -149,3 +149,18 @@ def test_migrate_converts_notes_to_senses():
     assert by_word["legacy"]["senses"][0]["status"] == "ACTIVE"
     assert "notes" not in by_word["empty_notes"]
     assert by_word["empty_notes"]["senses"] == []
+
+
+# ── count_vocab ─────────────────────────────────────────────────────────────────
+
+def test_count_vocab_counts_all():
+    store = _make_store()
+    run(store.save_vocab("bank", "bờ sông", user_id="u1"))
+    run(store.save_vocab("run", "chạy", user_id="u1"))
+    run(store.save_vocab("car", "xe", user_id="u2"))
+    assert run(store.count_vocab("u1")) == 2
+    assert run(store.count_vocab("u2")) == 1
+
+def test_count_vocab_empty():
+    store = _make_store()
+    assert run(store.count_vocab("u1")) == 0

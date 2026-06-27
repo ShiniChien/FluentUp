@@ -200,6 +200,9 @@ class FluentUpStore:
             {"user_id": user_id, "senses.status": "IN_REVIEW"}
         ))
 
+    async def count_vocab(self, user_id: str) -> int:
+        return await _maybe_await(self._vocabulary.count_documents({"user_id": user_id}))
+
     # ── User account CRUD ─────────────────────────────────────────────────────
 
     async def get_user_by_username(self, username: str) -> dict | None:
