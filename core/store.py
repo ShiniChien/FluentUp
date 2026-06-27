@@ -8,6 +8,7 @@ from typing import Any
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import OperationFailure
 
 _logger = logging.getLogger(__name__)
 
@@ -66,7 +67,11 @@ class FluentUpStore:
         await db["writing_topics"].create_index([("task_type", 1)], background=True)
         await db["writing_topics"].create_index([("created_at", -1)], background=True)
         await self._reading_articles.create_index("link", unique=True, sparse=True, background=True)
-        await self._reading_articles.create_index("url", unique=True, sparse=True, background=True)  # legacy compat
+        try:
+            await self._reading_articles.create_index("url", unique=True, sparse=True, background=True)  # legacy compat
+        except OperationFailure:
+            await self._reading_articles.drop_index("url_1")
+            await self._reading_articles.create_index("url", unique=True, sparse=True, background=True)
         await self._reading_articles.create_index("category", background=True)
         await self._reading_articles.create_index([("created_at", -1)], background=True)
         await self._practice_items.create_index([("topic", 1), ("difficulty", 1)], background=True)
