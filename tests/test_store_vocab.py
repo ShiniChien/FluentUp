@@ -141,7 +141,7 @@ def test_migrate_converts_notes_to_senses():
     store._vocabulary.insert_one({
         "word": "empty_notes", "notes": "", "user_id": "u1", "created_at": now,
     })
-    run(store._migrate_vocab())
+    run(store.migrate_vocab())
     docs = list(store._vocabulary.find({"user_id": "u1"}))
     by_word = {d["word"]: d for d in docs}
     assert "notes" not in by_word["legacy"]
