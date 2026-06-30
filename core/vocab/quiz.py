@@ -1,8 +1,6 @@
 """core/vocab/quiz.py — Inline mini quiz on the vocab page."""
 from __future__ import annotations
 
-import random
-
 import streamlit as st
 
 from core.async_utils import run_async
@@ -23,74 +21,98 @@ def _all_meanings(entry: dict) -> list[str]:
 
 
 def render_mini_quiz(store, user_id: str) -> None:
-    """Render a 5-word en→vi mini quiz. Inline — no HTML export."""
+    """Render a 5-word en→vi mini quiz. Single state dict, single rerun."""
     st.markdown("### 🎲 Mini Test")
-    st.caption("Chọn 5 từ ngẫu nhiên để kiểm tra nhanh (en → vi).")
 
-    if st.button("🎲 Tạo quiz", type="secondary", use_container_width=True, key="mini_quiz_gen"):
-        # Reset quiz state
-        st.session_state.pop("mini_quiz_words", None)
-        st.session_state.pop("mini_quiz_answers", None)
-        st.session_state.pop("mini_quiz_submitted", None)
-        st.rerun()
+    quiz = st.session_state.get("vocab_quiz", {"phase": "idle"})
 
-    # Only proceed if generating fresh
-    if "mini_quiz_words" not in st.session_state:
-        try:
-            all_vocab = run_async(store.get_vocab(user_id=user_id, limit=9999))
-        except Exception:
-            _logger.exception("mini_quiz: failed to fetch vocab")
-            all_vocab = []
+    # ── Idle — show start button ────────────────────────────────────────────
+    if quiz["phase"] == "idle":
+        st.caption("Chọn 5 từ ngẫu nhiên để kiểm tra nhanh (en → vi).")
+        if st.button("🎲 Làm quiz 5 từ", type="secondary", use_container_width=True,
+                      key="mini_quiz_start"):
+            try:
+                words = run_async(store.sample_vocab(user_id, n=5))
+            except Exception:
+                _logger.exception("mini_quiz: sample_vocab failed")
+                words = []
+            if len(words) < 5:
+                st.info(f"Cần ít nhất 5 từ để tạo quiz (hiện có {len(words)}).")
+                return
+            st.session_state["vocab_quiz"] = {
+                "phase": "active",
+                "words": words,
+                "answers": [""] * 5,
+            }
+            st.rerun()
 
-        if len(all_vocab) < 5:
-            st.info(f"Cần ít nhất 5 từ vựng để tạo quiz (hiện có {len(all_vocab)}).")
-            return
+    # ── Active — show questions ─────────────────────────────────────────────
+    elif quiz["phase"] == "active":
+        words = quiz["words"]
+        total = len(words)
+        answered = sum(1 for a in quiz["answers"] if a.strip())
+        st.progress(answered / total, f"Câu {answered}/{total}")
 
-        words = random.sample(all_vocab, 5)
-        st.session_state["mini_quiz_words"] = words
-        st.session_state["mini_quiz_answers"] = [""] * 5
-        st.session_state["mini_quiz_submitted"] = False
-        st.rerun()
-
-    words = st.session_state["mini_quiz_words"]
-    submitted = st.session_state.get("mini_quiz_submitted", False)
-
-    st.markdown("---")
-    for idx, entry in enumerate(words):
-        word = entry.get("word", "")
-        col_q, col_a = st.columns([1, 2])
-        with col_q:
-            st.markdown(f"**{idx + 1}. {word}**")
-        with col_a:
-            if submitted:
-                correct_meanings = _all_meanings(entry)
-                user_ans = st.session_state["mini_quiz_answers"][idx].strip().lower()
-                ok = any(user_ans == m.strip().lower() for m in correct_meanings)
-                if ok:
-                    st.markdown(f"✅ *{user_ans}*")
-                else:
-                    st.markdown(f"❌ *{user_ans}* — Đáp án: {', '.join(correct_meanings)}")
-            else:
-                st.session_state["mini_quiz_answers"][idx] = st.text_input(
+        st.markdown("---")
+        for idx, entry in enumerate(words):
+            word = entry.get("word", "")
+            col_q, col_a = st.columns([1, 2])
+            with col_q:
+                st.markdown(f"**{idx + 1}. {word}**")
+            with col_a:
+                quiz["answers"][idx] = st.text_input(
                     "Nghĩa tiếng Việt", key=f"mini_quiz_{idx}",
                     label_visibility="collapsed", placeholder="Nhập nghĩa…",
                 )
 
-    if not submitted:
-        if st.button("📝 Nộp bài", type="primary", use_container_width=True, key="mini_quiz_submit"):
-            st.session_state["mini_quiz_submitted"] = True
+        if st.button("📝 Nộp bài", type="primary", use_container_width=True,
+                      key="mini_quiz_submit"):
+            st.session_state["vocab_quiz"]["phase"] = "submitted"
             st.rerun()
-    else:
-        # Score
+
+    # ── Submitted — show results ────────────────────────────────────────────
+    elif quiz["phase"] == "submitted":
+        words = quiz["words"]
         correct = 0
+        wrong_indices = []
+
         for idx, entry in enumerate(words):
             correct_meanings = [m.strip().lower() for m in _all_meanings(entry)]
-            user_ans = st.session_state["mini_quiz_answers"][idx].strip().lower()
+            user_ans = quiz["answers"][idx].strip().lower()
             if user_ans in correct_meanings:
                 correct += 1
+            else:
+                wrong_indices.append(idx)
+
         st.markdown(f"### ✅ Kết quả: {correct}/{len(words)}")
-        if st.button("🔄 Làm lại", use_container_width=True, key="mini_quiz_retry"):
-            st.session_state.pop("mini_quiz_words", None)
-            st.session_state.pop("mini_quiz_answers", None)
-            st.session_state.pop("mini_quiz_submitted", None)
-            st.rerun()
+
+        for idx, entry in enumerate(words):
+            word = entry.get("word", "")
+            correct_meanings = _all_meanings(entry)
+            user_ans = quiz["answers"][idx].strip().lower()
+            ok = any(user_ans == m.strip().lower() for m in correct_meanings)
+            if ok:
+                st.markdown(f"✅ **{word}** — *{user_ans}*")
+            else:
+                st.markdown(
+                    f"❌ **{word}** — *{user_ans or '(bỏ trống)'}*  \n"
+                    f"<small style='color:#f0ad4e'>Đáp án: {', '.join(correct_meanings)}</small>",
+                    unsafe_allow_html=True,
+                )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Làm lại", use_container_width=True, key="mini_quiz_retry"):
+                st.session_state.pop("vocab_quiz", None)
+                st.rerun()
+        with col2:
+            if wrong_indices and st.button("📋 Từ sai → REVIEW", use_container_width=True,
+                                            key="mini_quiz_review"):
+                for idx in wrong_indices:
+                    entry = words[idx]
+                    try:
+                        run_async(store.mark_sense_review(entry["_id"], 0))
+                    except Exception:
+                        _logger.exception("mini_quiz: mark_sense_review failed")
+                st.toast(f"✅ Đã đánh dấu {len(wrong_indices)} từ cần ôn tập")
+                st.rerun()
