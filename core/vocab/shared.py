@@ -51,13 +51,21 @@ def render_entry_list(entries: list[dict], store) -> None:
             else:
                 st.markdown(f"**{w}**")
         with col_del:
-            if st.button("×", key=f"del_vocab_{entry['_id']}", help="Xoá"):
-                try:
-                    run_async(store.delete_vocab(entry["_id"]))
-                    bust_review_cache()
+            del_key = f"del_vocab_{entry['_id']}"
+            confirm_key = f"_confirm_del_{entry['_id']}"
+            if st.session_state.get(confirm_key):
+                if st.button("✓", key=f"confirm_{entry['_id']}", help="Xác nhận xoá"):
+                    try:
+                        run_async(store.delete_vocab(entry["_id"]))
+                        bust_review_cache()
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Xoá thất bại: {exc}")
+            else:
+                if st.button("×", key=del_key, help="Xoá"):
+                    st.session_state[confirm_key] = True
                     st.rerun()
-                except Exception as exc:
-                    st.error(f"Xoá thất bại: {exc}")
 
 
 def render_search_input(on_query_change) -> str:
@@ -154,7 +162,7 @@ def render_sense_manager(entry: dict, store) -> None:
         if val:
             try:
                 run_async(store.add_sense(word_id, val))
-                st.session_state.pop("vd_new_sense", None)
+                st.session_state.pop(f"vd_new_sense_{word_id}", None)
                 bust_review_cache()
                 st.rerun()
             except Exception as exc:
@@ -232,14 +240,20 @@ def render_bulk_insert(store, user_id: str) -> None:
 def search_on_query_change(store, user_id: str) -> None:
     """Auto-translate new word when query changes (no existing match)."""
     q = st.session_state.get("vd_query", "").strip()
-    if not q or not _is_valid_regex(q):
+    if not q or len(q) < 2 or not _is_valid_regex(q):
         return
+    prev = st.session_state.get("_vd_last_query", "")
+    if q == prev:
+        return
+    st.session_state["_vd_last_query"] = q
     try:
-        existing = run_async(store.search_vocab(user_id=user_id, query=re.escape(q)))
+        existing = run_async(store.search_vocab(user_id=user_id, query=re.escape(q), limit=5))
     except Exception:
         _logger.exception("vocab: failed to search vocab from DB")
         existing = []
-    if _is_duplicate(q, existing):
+    # Exact word match (not substring)
+    exact_match = next((e for e in existing if e.get("word", "").lower() == q.lower()), None)
+    if exact_match is not None:
         return
     try:
         st.session_state["vd_notes"] = run_async(_translate_to_vi(q))
