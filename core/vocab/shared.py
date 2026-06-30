@@ -267,54 +267,97 @@ def render_add_new_word(word: str, store, user_id: str) -> None:
 
 
 def render_bulk_insert(store, user_id: str) -> None:
-    """Bulk insert: textarea, one `word = meaning` per line, skip existing."""
+    """Bulk insert with preview table and flexible parsing."""
     st.markdown("**📥 Nhập hàng loạt**")
-    st.caption("Mỗi dòng một từ: `word = meaning`. Dòng không hợp lệ sẽ bị bỏ qua.")
+    st.caption("Mỗi dòng một từ. Các định dạng: `word = meaning`, `word : meaning`, `word → meaning`, hoặc tab.")
+
     raw = st.text_area(
-        "Danh sách từ", placeholder="bank = bờ sông\nlook after = chăm sóc\nresult in = dẫn đến",
+        "Danh sách từ",
+        placeholder="bank = bờ sông\nlook after : chăm sóc\nresult in → dẫn đến",
         key="vocab_bulk_input", label_visibility="collapsed", height=150,
     )
-    if st.button("📥 Nhập", type="primary", use_container_width=True, key="vocab_bulk_submit"):
-        if not raw.strip():
-            st.warning("Vui lòng nhập danh sách từ.")
-            return
-        lines = [l.strip() for l in raw.split("\n") if l.strip()]
-        added = 0
-        skipped = 0
-        appended = 0
-        for line in lines:
-            parts = re.split(r"\s*=\s*", line, maxsplit=1)
-            if len(parts) != 2:
-                skipped += 1
-                continue
-            w, m = parts[0].strip(), parts[1].strip()
-            if not w or not m:
-                skipped += 1
-                continue
-            try:
-                existing = run_async(store.search_vocab(user_id=user_id, query=re.escape(w), limit=1))
-            except Exception:
-                existing = []
-            if existing:
-                doc = existing[0]
-                existing_meanings = {s.get("meaning", "").strip().lower() for s in doc.get("senses", []) if s.get("meaning")}
-                if m.lower() in existing_meanings:
-                    skipped += 1
-                else:
-                    run_async(store.add_sense(doc["_id"], m))
-                    appended += 1
+
+    if not raw.strip():
+        return
+
+    # Parse lines
+    lines = [l.strip() for l in raw.split("\n") if l.strip()]
+    parsed = []
+    for line in lines:
+        parts = re.split(r"\s*(?:=|:|→|\t)\s*", line, maxsplit=1)
+        if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+            parsed.append({"word": line, "meaning": "", "action": "skip", "reason": "Sai định dạng"})
+        else:
+            parsed.append({"word": parts[0].strip(), "meaning": parts[1].strip(), "action": "unknown"})
+
+    # Determine action for each parsed line
+    for p in parsed:
+        if p["action"] == "skip":
+            continue
+        w, m = p["word"], p["meaning"]
+        try:
+            existing = run_async(store.search_vocab(user_id=user_id, query=re.escape(w), limit=1))
+        except Exception:
+            existing = []
+        if existing and existing[0].get("word", "").lower() == w.lower():
+            doc = existing[0]
+            existing_meanings = {s.get("meaning", "").strip().lower() for s in doc.get("senses", []) if s.get("meaning")}
+            if m.lower() in existing_meanings:
+                p["action"] = "skip"
+                p["reason"] = "Trùng nghĩa"
             else:
-                run_async(store.save_vocab(w, m, user_id=user_id))
-                added += 1
+                p["action"] = "append"
+                p["doc_id"] = doc["_id"]
+        else:
+            p["action"] = "add"
+
+    # Preview table
+    to_import = [p for p in parsed if p["action"] in ("add", "append")]
+    to_skip = [p for p in parsed if p["action"] == "skip"]
+
+    if to_import:
+        st.markdown(f"**{len(to_import)} dòng sẽ được nhập:**")
+        rows = []
+        for p in to_import:
+            label = "➕ Thêm mới" if p["action"] == "add" else "📎 Thêm nghĩa"
+            rows.append({"Word": p["word"], "Meaning": p["meaning"], "Hành động": label})
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    if to_skip:
+        with st.expander(f"⏭ {len(to_skip)} dòng bị bỏ qua"):
+            for p in to_skip:
+                st.caption(f"• **{p['word']}** — {p.get('reason', '')}")
+
+    if not to_import:
+        st.caption("Không có gì để nhập.")
+        return
+
+    if st.button("📥 Nhập", type="primary", use_container_width=True, key="vocab_bulk_submit"):
+        added = 0
+        appended = 0
+        failed = 0
+        for p in to_import:
+            try:
+                if p["action"] == "add":
+                    run_async(store.save_vocab(p["word"], p["meaning"], user_id=user_id))
+                    added += 1
+                else:
+                    run_async(store.add_sense(p["doc_id"], p["meaning"]))
+                    appended += 1
+            except Exception:
+                _logger.exception("bulk_insert: failed for %s", p["word"])
+                failed += 1
         bust_review_cache()
         parts = []
         if added:
             parts.append(f"Thêm {added} từ mới")
         if appended:
             parts.append(f"Thêm {appended} nghĩa")
-        if skipped:
-            parts.append(f"Bỏ qua {skipped} (đã tồn tại hoặc lỗi định dạng)")
+        if failed:
+            parts.append(f"Thất bại {failed}")
         st.success("Đã xong: " + ", ".join(parts))
+        st.session_state.pop("vocab_bulk_input", None)
+        st.rerun()
 
 
 def search_on_query_change(store, user_id: str) -> None:
