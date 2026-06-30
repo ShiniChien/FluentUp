@@ -95,9 +95,8 @@ def render_mini_quiz(store, user_id: str) -> None:
                 st.markdown(f"✅ **{word}** — *{user_ans}*")
             else:
                 st.markdown(
-                    f"❌ **{word}** — *{user_ans or '(bỏ trống)'}*  \n"
-                    f"<small style='color:#f0ad4e'>Đáp án: {', '.join(correct_meanings)}</small>",
-                    unsafe_allow_html=True,
+                    f"❌ **{word}** — *{user_ans or '(bỏ trống)'}*\n\n"
+                    f"Đáp án: {', '.join(correct_meanings)}"
                 )
 
         col1, col2 = st.columns(2)
