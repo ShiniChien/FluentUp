@@ -16,6 +16,86 @@ def bust_review_cache() -> None:
     st.session_state.pop("_vocab_review_count", None)
 
 
+def _on_quick_word_change(store, user_id: str) -> None:
+    """Auto-translate on Enter (input blur). Debounce check via timestamp."""
+    import time
+
+    word = st.session_state.get("vocab_quick_word", "").strip()
+    if len(word) < 2:
+        return
+    now = time.time()
+    last_ts = st.session_state.get("_vocab_quick_ts", 0)
+    last_word = st.session_state.get("_vocab_quick_last_word", "")
+    st.session_state["_vocab_quick_ts"] = now
+    if word == last_word:
+        return
+    if now - last_ts < 0.5:
+        return  # user still typing
+    st.session_state["_vocab_quick_last_word"] = word
+    try:
+        st.session_state["vocab_quick_meaning"] = run_async(_translate_to_vi(word))
+    except Exception:
+        _logger.exception("quick_add: auto-translate failed")
+
+
+def render_quick_add_bar(store, user_id: str) -> None:
+    """One-row quick-add bar: word → auto-translate → save."""
+    st.markdown("### ⚡ Thêm từ nhanh")
+
+    cw, ct, cm, cs = st.columns([3, 1, 3, 1])
+
+    with cw:
+        word = st.text_input(
+            "Từ tiếng Anh",
+            placeholder="Nhập từ mới…",
+            key="vocab_quick_word",
+            label_visibility="collapsed",
+            on_change=lambda: _on_quick_word_change(store, user_id),
+        )
+
+    with ct:
+        if st.button("🌐 Dịch", use_container_width=True, key="vocab_quick_translate_btn",
+                      help="Dịch từ sang tiếng Việt"):
+            w = st.session_state.get("vocab_quick_word", "").strip()
+            if len(w) >= 2:
+                try:
+                    st.session_state["vocab_quick_meaning"] = run_async(_translate_to_vi(w))
+                except Exception:
+                    _logger.exception("quick_add: translate failed")
+
+    with cm:
+        meaning = st.text_input(
+            "Nghĩa tiếng Việt",
+            placeholder="Nhập nghĩa…",
+            key="vocab_quick_meaning",
+            label_visibility="collapsed",
+        )
+
+    with cs:
+        if st.button("💾 Lưu", type="primary", use_container_width=True, key="vocab_quick_save"):
+            w = word.strip()
+            m = meaning.strip()
+            if not w:
+                st.warning("Vui lòng nhập từ.")
+            elif not m:
+                st.warning("Vui lòng nhập nghĩa.")
+            else:
+                try:
+                    existing = run_async(store.search_vocab(user_id=user_id, query=re.escape(w), limit=1))
+                except Exception:
+                    existing = []
+                if existing and existing[0].get("word", "").lower() == w.lower():
+                    run_async(store.add_sense(existing[0]["_id"], m))
+                    st.toast(f"✅ Đã thêm nghĩa mới cho '{w}'")
+                else:
+                    run_async(store.save_vocab(w, m, user_id=user_id))
+                    st.toast(f"✅ Đã thêm '{w}'")
+                st.session_state["vocab_quick_word"] = ""
+                st.session_state["vocab_quick_meaning"] = ""
+                bust_review_cache()
+                st.rerun()
+
+
 async def _translate_to_vi(word: str) -> str:
     async with Translator() as t:
         result = await t.translate(word.strip(), dest="vi", src="auto")
