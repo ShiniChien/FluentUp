@@ -125,11 +125,15 @@ class FluentUpStore:
         return str(doc["_id"])
 
     async def get_vocab(
-        self, user_id: str = "default", limit: int = 20
+        self, user_id: str = "default", limit: int = 20, offset: int = 0,
+        sort_by: str = "created_at",
     ) -> list[dict]:
+        sort_field = "word" if sort_by == "word" else "created_at"
+        sort_dir = 1 if sort_by == "word" else -1  # ASC for word, DESC for created_at
         cursor = self._vocabulary.find(
             {"user_id": user_id},
-            sort=[("created_at", -1)],
+            sort=[(sort_field, sort_dir)],
+            skip=offset,
             limit=limit,
         )
         if hasattr(cursor, 'to_list'):
@@ -202,6 +206,27 @@ class FluentUpStore:
 
     async def count_vocab(self, user_id: str) -> int:
         return await _maybe_await(self._vocabulary.count_documents({"user_id": user_id}))
+
+    async def sample_vocab(self, user_id: str, n: int = 5) -> list[dict]:
+        """Return n random vocabulary documents using MongoDB $sample."""
+        cursor = self._vocabulary.aggregate([
+            {"$match": {"user_id": user_id}},
+            {"$sample": {"size": n}},
+        ])
+        if hasattr(cursor, 'to_list'):
+            docs = await _maybe_await(cursor.to_list(length=n))
+        else:
+            docs = list(cursor)
+        for doc in docs:
+            doc["_id"] = str(doc["_id"])
+        return docs
+
+    async def mark_sense_review(self, word_id: str, sense_idx: int = 0) -> bool:
+        result = await _maybe_await(self._vocabulary.update_one(
+            {"_id": ObjectId(word_id)},
+            {"$set": {f"senses.{sense_idx}.status": "IN_REVIEW"}},
+        ))
+        return result.modified_count > 0
 
     # ── User account CRUD ─────────────────────────────────────────────────────
 

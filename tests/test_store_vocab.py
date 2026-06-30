@@ -164,3 +164,61 @@ def test_count_vocab_counts_all():
 def test_count_vocab_empty():
     store = _make_store()
     assert run(store.count_vocab("u1")) == 0
+
+
+# ── sample_vocab ─────────────────────────────────────────────────────────────────
+
+def test_sample_vocab_returns_n():
+    store = _make_store()
+    for i in range(10):
+        run(store.save_vocab(f"word{i}", f"nghĩa{i}", user_id="u1"))
+    result = run(store.sample_vocab("u1", n=5))
+    assert len(result) == 5
+    for doc in result:
+        assert "_id" in doc
+        assert "word" in doc
+        assert "senses" in doc
+
+
+def test_sample_vocab_empty_user():
+    store = _make_store()
+    result = run(store.sample_vocab("noone", n=5))
+    assert len(result) == 0
+
+
+def test_sample_vocab_less_than_n():
+    store = _make_store()
+    run(store.save_vocab("only", "duy nhất", user_id="u1"))
+    result = run(store.sample_vocab("u1", n=5))
+    assert len(result) == 1
+
+
+# ── mark_sense_review ───────────────────────────────────────────────────────────
+
+def test_mark_sense_review():
+    store = _make_store()
+    wid = run(store.save_vocab("bank", "bờ sông", user_id="u1"))
+    ok = run(store.mark_sense_review(wid, 0))
+    assert ok is True
+    docs = run(store.get_vocab(user_id="u1"))
+    assert docs[0]["senses"][0]["status"] == "IN_REVIEW"
+
+
+# ── get_vocab sort + offset ─────────────────────────────────────────────────────
+
+def test_get_vocab_sort_by_word():
+    store = _make_store()
+    run(store.save_vocab("zebra", "ngựa vằn", user_id="u1"))
+    run(store.save_vocab("apple", "quả táo", user_id="u1"))
+    run(store.save_vocab("mango", "quả xoài", user_id="u1"))
+    docs = run(store.get_vocab(user_id="u1", sort_by="word"))
+    words = [d["word"] for d in docs]
+    assert words == ["apple", "mango", "zebra"]
+
+
+def test_get_vocab_offset():
+    store = _make_store()
+    for i in range(5):
+        run(store.save_vocab(f"word{i}", f"nghĩa{i}", user_id="u1"))
+    docs = run(store.get_vocab(user_id="u1", limit=2, offset=2))
+    assert len(docs) == 2
