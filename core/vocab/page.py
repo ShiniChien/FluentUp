@@ -1,6 +1,8 @@
 """core/vocab/page.py — Full-page vocabulary management."""
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 from core.async_utils import run_async
@@ -42,9 +44,9 @@ def _render_card(entry: dict, store) -> None:
         st.markdown(
             f"<div style='border:1px solid {border_color};border-left:3px solid {border_color};"
             f"border-radius:6px;padding:8px 12px;margin:4px 0;background:{bg_tint}'>"
-            f"<span style='font-size:1.1em;font-weight:600'>{word}</span>"
+            f"<span style='font-size:1.1em;font-weight:600'>{html.escape(word)}</span>"
             f"<span style='color:#f0ad4e;font-size:0.8em'>{review_badge}</span>"
-            f"<br><span style='color:#888;font-size:0.9em'><i>{meanings_str}</i></span>"
+            f"<br><span style='color:#aaaaaa;font-size:0.9em'><i>{html.escape(meanings_str)}</i></span>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -128,6 +130,18 @@ def render_vocab_page(store) -> None:
     with cf3:
         review_only = st.checkbox("REVIEW", key="vocab_review_filter",
                                    help="Chỉ hiện từ có nghĩa đang review")
+
+    # Reset offset when sort or filter changes
+    prev_sort = st.session_state.get("_vocab_prev_sort")
+    prev_filter = st.session_state.get("_vocab_prev_filter")
+    prev_review = st.session_state.get("_vocab_prev_review")
+    if (prev_sort is not None and prev_sort != sort_by) or \
+       (prev_filter is not None and prev_filter != filter_text) or \
+       (prev_review is not None and prev_review != review_only):
+        st.session_state["vocab_offset"] = 0
+    st.session_state["_vocab_prev_sort"] = sort_by
+    st.session_state["_vocab_prev_filter"] = filter_text
+    st.session_state["_vocab_prev_review"] = review_only
 
     # ── Fetch ───────────────────────────────────────────────────────────────
     page_size = 50
