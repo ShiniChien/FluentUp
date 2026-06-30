@@ -224,7 +224,7 @@ def fetch_all_vocab(mongo_uri: str, username: str = "", password: str = "") -> t
         serverSelectionTimeoutMS=10000,
     )
     db = client["fluentup"]
-    all_docs = list(db["vocabulary"].find({}, {"_id": 0, "word": 1, "senses": 1, "user_id": 1}))
+    all_docs = list(db["vocabulary"].find({}, {"_id": 1, "word": 1, "senses": 1, "user_id": 1}))
     # keep only docs that have at least one sense with a meaning
     all_docs = [d for d in all_docs if d.get("senses")]
     client.close()
