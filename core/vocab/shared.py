@@ -90,8 +90,8 @@ def render_quick_add_bar(store, user_id: str) -> None:
                 else:
                     run_async(store.save_vocab(w, m, user_id=user_id))
                     st.toast(f"✅ Đã thêm '{w}'")
-                st.session_state["vocab_quick_word"] = ""
-                st.session_state["vocab_quick_meaning"] = ""
+                st.session_state.pop("vocab_quick_word", None)
+                st.session_state.pop("vocab_quick_meaning", None)
                 bust_review_cache()
                 st.rerun()
 
