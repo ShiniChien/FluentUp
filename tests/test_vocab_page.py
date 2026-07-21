@@ -144,3 +144,88 @@ def test_quick_add_save_does_not_crash():
     # inputs cleared (robust to harness artifact: key may be absent after pop)
     assert _ss(at, "vocab_quick_word", "") == ""
     assert _ss(at, "vocab_quick_meaning", "") == ""
+
+
+def _seed(store: _MockStore, n: int):
+    for i in range(n):
+        asyncio.run(store.save_vocab(f"word{i:02d}", f"nghĩa{i}", user_id="u1"))
+
+
+def test_pagination_renders_when_over_page_size():
+    store = _MockStore()
+    _seed(store, 25)  # 2 pages at size 20
+    at = _run_page(store)
+    assert not at.exception
+    page_btns = [b for b in at.button if b.key.startswith("vocab_pg_")]
+    assert page_btns, "numbered pagination buttons should render"
+    # no legacy "Load more"
+    assert not any("Xem thêm" in b.label for b in at.button)
+
+
+def test_pagination_click_changes_page():
+    store = _MockStore()
+    _seed(store, 25)
+    at = _run_page(store)
+    # click page 2
+    pg2 = next(b for b in at.button if b.key == "vocab_pg_2")
+    at = _run(pg2.click())
+    assert _ss(at, "vocab_page", 1) == 2
+    assert not at.exception
+
+
+def test_pagination_prev_next():
+    store = _MockStore()
+    _seed(store, 25)
+    at = _run_page(store)
+    assert _ss(at, "vocab_page", 1) == 1
+    nxt = next(b for b in at.button if b.key == "vocab_next")
+    at = _run(nxt.click())
+    assert _ss(at, "vocab_page", 1) == 2
+    # AppTest accumulates forward messages across st.rerun() within a single
+    # .run() call, so the tree can contain duplicate widget nodes with the same
+    # key. Set _value=True on every matching button so the duplicated widget
+    # states don't mask the click (the last duplicate with _value=False would
+    # otherwise win).
+    for b in at.button:
+        if b.key == "vocab_prev":
+            b.set_value(True)
+    at = _run(at)
+    assert _ss(at, "vocab_page", 1) == 1
+
+
+def test_filter_change_resets_page_to_1():
+    store = _MockStore()
+    _seed(store, 25)
+    at = _run_page(store)
+    # go to page 2
+    at = _run(next(b for b in at.button if b.key == "vocab_pg_2").click())
+    assert _ss(at, "vocab_page", 1) == 2
+    # change filter
+    at.session_state["vocab_filter"] = "word0"
+    at = _run(at)
+    assert _ss(at, "vocab_page", 1) == 1
+
+
+def test_results_info_uses_filtered_total():
+    store = _MockStore()
+    _seed(store, 25)
+    at = _run_page(store)
+    rendered = " ".join(m.value for m in at.markdown)
+    assert "Hiển thị" in rendered
+    assert "/ 25" in rendered  # unfiltered total on first page
+    # filter "word1": matches word10..word19 (10 words) by substring;
+    # server-side query_vocab counts them all -> filtered total 10
+    at.session_state["vocab_filter"] = "word1"
+    at = _run(at)
+    rendered = " ".join(m.value for m in at.markdown)
+    assert "/ 10" in rendered  # filtered total from query_vocab
+
+
+def test_page_clamps_when_out_of_range():
+    store = _MockStore()
+    _seed(store, 25)  # 2 pages
+    at = _run_page(store)
+    at.session_state["vocab_page"] = 99  # beyond total_pages
+    at = _run(at)
+    assert _ss(at, "vocab_page", 1) == 2  # clamped to last page
+    assert not at.exception

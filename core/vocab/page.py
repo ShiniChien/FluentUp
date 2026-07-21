@@ -16,6 +16,53 @@ from core.vocab.shared import (
 )
 
 
+def _page_window(current: int, total: int) -> list[int | str]:
+    """Page buttons to render: first, current±1, last, with '…' ellipsis for gaps."""
+    if total <= 7:
+        return list(range(1, total + 1))
+    pages = {1, current, total}
+    if current > 1:
+        pages.add(current - 1)
+    if current < total:
+        pages.add(current + 1)
+    ordered = sorted(pages)
+    result: list[int | str] = []
+    for i, p in enumerate(ordered):
+        if i > 0 and p - ordered[i - 1] > 1:
+            result.append("…")
+        result.append(p)
+    return result
+
+
+def _render_pagination(current: int, total: int) -> None:
+    """Numbered pagination with ellipsis + prev/next. Reads/writes st.session_state['vocab_page']."""
+    if total <= 1:
+        return
+    window = _page_window(current, total)
+    cols = st.columns(len(window) + 2)  # +2 for prev / next arrows
+    with cols[0]:
+        if st.button("◀", key="vocab_prev", disabled=(current <= 1),
+                     use_container_width=True):
+            st.session_state["vocab_page"] = current - 1
+            st.rerun()
+    for i, p in enumerate(window):
+        with cols[i + 1]:
+            if p == "…":
+                st.button("…", key=f"vocab_ell_{i}", disabled=True,
+                          use_container_width=True)
+            else:
+                btn_type = "primary" if p == current else "secondary"
+                if st.button(str(p), key=f"vocab_pg_{p}", type=btn_type,
+                             use_container_width=True):
+                    st.session_state["vocab_page"] = p
+                    st.rerun()
+    with cols[-1]:
+        if st.button("▶", key="vocab_next", disabled=(current >= total),
+                     use_container_width=True):
+            st.session_state["vocab_page"] = current + 1
+            st.rerun()
+
+
 def _render_card(entry: dict, store) -> None:
     """Render a single word card with inline edit on demand."""
     word_id = entry["_id"]
@@ -131,56 +178,47 @@ def render_vocab_page(store) -> None:
         review_only = st.checkbox("REVIEW", key="vocab_review_filter",
                                    help="Chỉ hiện từ có nghĩa đang review")
 
-    # Reset offset when sort or filter changes
+    # Reset to page 1 when sort or filter changes
     prev_sort = st.session_state.get("_vocab_prev_sort")
     prev_filter = st.session_state.get("_vocab_prev_filter")
     prev_review = st.session_state.get("_vocab_prev_review")
     if (prev_sort is not None and prev_sort != sort_by) or \
        (prev_filter is not None and prev_filter != filter_text) or \
        (prev_review is not None and prev_review != review_only):
-        st.session_state["vocab_offset"] = 0
+        st.session_state["vocab_page"] = 1
     st.session_state["_vocab_prev_sort"] = sort_by
     st.session_state["_vocab_prev_filter"] = filter_text
     st.session_state["_vocab_prev_review"] = review_only
 
-    # ── Fetch ───────────────────────────────────────────────────────────────
-    page_size = 50
-    offset = st.session_state.get("vocab_offset", 0)
+    # ── Fetch (single server-side query) ────────────────────────────────────
+    page_size = 20
+    page = st.session_state.get("vocab_page", 1)
+    offset = (page - 1) * page_size
     store_sort = "word" if sort_by == "A → Z" else "created_at"
 
     try:
-        entries = run_async(store.get_vocab(
-            user_id=user_id, limit=page_size, offset=offset, sort_by=store_sort,
+        total, entries = run_async(store.query_vocab(
+            user_id=user_id, limit=page_size, offset=offset,
+            sort_by=store_sort, filter_text=filter_text.strip(),
+            review_only=review_only,
         ))
-        if offset == 0:
-            total_count = run_async(store.count_vocab(user_id))
-        else:
-            total_count = total  # from header
     except Exception as exc:
         st.error(f"Lỗi tải dữ liệu: {exc}")
         return
 
-    # ── Client-side filter ──────────────────────────────────────────────────
-    ft = filter_text.strip().lower()
-    if ft:
-        entries = [
-            e for e in entries
-            if ft in e.get("word", "").lower()
-            or any(ft in s.get("meaning", "").lower() for s in e.get("senses", []))
-        ]
-    if review_only:
-        entries = [
-            e for e in entries
-            if any(s.get("status") == "IN_REVIEW" for s in e.get("senses", []))
-        ]
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    # Clamp page if out of range (e.g. after a delete reduced the total)
+    if page > total_pages:
+        st.session_state["vocab_page"] = total_pages
+        st.rerun()
 
     if not entries:
         st.caption("Không có từ nào khớp.")
         return
 
-    # ── Results info ────────────────────────────────────────────────────────
+    # ── Results info (filtered total) ───────────────────────────────────────
     st.markdown(
-        f"<small style='color:gray'>Hiển thị {offset + 1}–{offset + len(entries)} / {total_count} từ</small>",
+        f"<small style='color:gray'>Hiển thị {offset + 1}–{offset + len(entries)} / {total} từ</small>",
         unsafe_allow_html=True,
     )
 
@@ -188,8 +226,5 @@ def render_vocab_page(store) -> None:
     for entry in entries:
         _render_card(entry, store)
 
-    # ── Load more ───────────────────────────────────────────────────────────
-    if not ft and not review_only and offset + page_size < total_count:
-        if st.button("Xem thêm…", use_container_width=True):
-            st.session_state["vocab_offset"] = offset + page_size
-            st.rerun()
+    # ── Numbered pagination ─────────────────────────────────────────────────
+    _render_pagination(page, total_pages)
