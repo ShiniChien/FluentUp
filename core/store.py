@@ -4,6 +4,7 @@ import asyncio
 import datetime
 import inspect
 import logging
+import re
 from typing import Any
 
 from bson import ObjectId
@@ -227,6 +228,36 @@ class FluentUpStore:
             {"$set": {f"senses.{sense_idx}.status": "IN_REVIEW"}},
         ))
         return result.modified_count > 0
+
+    async def query_vocab(
+        self,
+        user_id: str,
+        limit: int = 20,
+        offset: int = 0,
+        sort_by: str = "created_at",
+        filter_text: str = "",
+        review_only: bool = False,
+    ) -> tuple[int, list[dict]]:
+        """Filtered, sorted, paginated vocab query. Returns (total_matching, docs)."""
+        query: dict[str, Any] = {"user_id": user_id}
+        if filter_text:
+            rx = {"$regex": re.escape(filter_text), "$options": "i"}
+            query["$or"] = [{"word": rx}, {"senses.meaning": rx}]
+        if review_only:
+            query["senses.status"] = "IN_REVIEW"
+        sort_field = "word" if sort_by == "word" else "created_at"
+        sort_dir = 1 if sort_by == "word" else -1
+        total = await _maybe_await(self._vocabulary.count_documents(query))
+        cursor = self._vocabulary.find(
+            query, sort=[(sort_field, sort_dir)], skip=offset, limit=limit,
+        )
+        if hasattr(cursor, 'to_list'):
+            docs = await _maybe_await(cursor.to_list(length=limit))
+        else:
+            docs = list(cursor)
+        for doc in docs:
+            doc["_id"] = str(doc["_id"])
+        return total, docs
 
     # ── User account CRUD ─────────────────────────────────────────────────────
 

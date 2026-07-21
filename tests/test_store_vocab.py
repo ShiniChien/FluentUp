@@ -222,3 +222,91 @@ def test_get_vocab_offset():
         run(store.save_vocab(f"word{i}", f"nghĩa{i}", user_id="u1"))
     docs = run(store.get_vocab(user_id="u1", limit=2, offset=2))
     assert len(docs) == 2
+
+
+# ── query_vocab ───────────────────────────────────────────────────────────────
+
+def test_query_vocab_filter_word():
+    store = _make_store()
+    run(store.save_vocab("bank", "bờ sông", user_id="u1"))
+    run(store.save_vocab("apple", "quả táo", user_id="u1"))
+    total, docs = run(store.query_vocab("u1", filter_text="bank"))
+    assert total == 1
+    assert [d["word"] for d in docs] == ["bank"]
+
+
+def test_query_vocab_filter_meaning():
+    store = _make_store()
+    run(store.save_vocab("bank", "bờ sông", user_id="u1"))
+    run(store.save_vocab("apple", "quả táo", user_id="u1"))
+    total, docs = run(store.query_vocab("u1", filter_text="táo"))
+    assert total == 1
+    assert [d["word"] for d in docs] == ["apple"]
+
+
+def test_query_vocab_filter_case_insensitive():
+    store = _make_store()
+    run(store.save_vocab("Bank", "bờ sông", user_id="u1"))
+    total, docs = run(store.query_vocab("u1", filter_text="bank"))
+    assert total == 1
+    assert docs[0]["word"] == "Bank"
+
+
+def test_query_vocab_review_only():
+    store = _make_store()
+    wid = run(store.save_vocab("bank", "bờ sông", user_id="u1"))
+    run(store.save_vocab("apple", "quả táo", user_id="u1"))
+    run(store.mark_sense_review(wid, 0))
+    total, docs = run(store.query_vocab("u1", review_only=True))
+    assert total == 1
+    assert [d["word"] for d in docs] == ["bank"]
+
+
+def test_query_vocab_sort_word():
+    store = _make_store()
+    run(store.save_vocab("zebra", "ngựa vằn", user_id="u1"))
+    run(store.save_vocab("apple", "quả táo", user_id="u1"))
+    run(store.save_vocab("mango", "quả xoài", user_id="u1"))
+    total, docs = run(store.query_vocab("u1", sort_by="word"))
+    assert total == 3
+    assert [d["word"] for d in docs] == ["apple", "mango", "zebra"]
+
+
+def test_query_vocab_offset_limit_total_independent():
+    store = _make_store()
+    for i in range(5):
+        run(store.save_vocab(f"word{i}", f"nghĩa{i}", user_id="u1"))
+    total, docs = run(store.query_vocab("u1", limit=2, offset=2, sort_by="word"))
+    assert total == 5  # full matching count, not the slice length
+    assert len(docs) == 2
+    assert [d["word"] for d in docs] == ["word2", "word3"]
+
+
+def test_query_vocab_combined_filter_review_sort_offset():
+    store = _make_store()
+    # three words matching "run", two of them IN_REVIEW
+    w0 = run(store.save_vocab("runner", "người chạy", user_id="u1"))
+    w1 = run(store.save_vocab("run", "chạy", user_id="u1"))
+    run(store.save_vocab("prune", "mận", user_id="u1"))  # matches "run" substring
+    run(store.mark_sense_review(w0, 0))
+    run(store.mark_sense_review(w1, 0))
+    total, docs = run(store.query_vocab(
+        "u1", limit=10, offset=0, sort_by="word",
+        filter_text="run", review_only=True,
+    ))
+    assert total == 2
+    assert [d["word"] for d in docs] == ["run", "runner"]
+
+
+def test_query_vocab_returns_str_ids():
+    store = _make_store()
+    run(store.save_vocab("bank", "bờ sông", user_id="u1"))
+    _, docs = run(store.query_vocab("u1"))
+    assert all(isinstance(d["_id"], str) for d in docs)
+
+
+def test_query_vocab_empty_user():
+    store = _make_store()
+    total, docs = run(store.query_vocab("nobody"))
+    assert total == 0
+    assert docs == []
