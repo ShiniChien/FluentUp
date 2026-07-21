@@ -16,7 +16,12 @@ from core.vocab.shared import (
 )
 
 
-@st.dialog("📖 Từ điển cá nhân", width="large")
+def _on_dismiss() -> None:
+    """Clear the open flag when the user dismisses (X / ESC / click-outside)."""
+    st.session_state["_vocab_dialog_open"] = False
+
+
+@st.dialog("📖 Từ điển cá nhân", width="large", on_dismiss=_on_dismiss)
 def _vocab_dialog(store, user_id: str) -> None:
     # ── Expand button to full page ──────────────────────────────────────────
     col_title, col_expand = st.columns([6, 2])
@@ -90,6 +95,7 @@ def render_vocab_sidebar(store) -> None:
     if st.sidebar.button("📖 Từ điển cá nhân", use_container_width=True, shortcut="Alt+V"):
         st.session_state["_vocab_dialog_open"] = True
     if st.session_state.get("_vocab_dialog_open"):
-        # Clear flag before opening dialog so it doesn't reopen on dismiss
-        st.session_state["_vocab_dialog_open"] = False
+        # Do NOT clear the flag here — it must stay True so in-dialog
+        # st.rerun() calls reopen the dialog. The flag is cleared only
+        # by the on_dismiss callback (X / ESC / click-outside).
         _vocab_dialog(store, user_id)
