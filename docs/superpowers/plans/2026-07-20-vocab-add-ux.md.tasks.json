@@ -29,10 +29,10 @@
     {
       "id": 13,
       "subject": "Task 5: Final integration verification",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [9, 10, 11, 12],
       "description": "**Goal:** Confirm the whole app imports cleanly, the full test suite passes, and the app starts headless with a healthy Streamlit core — covering all touched files together.\n\n**Files:**\n- None (verification only; no code changes unless a check fails)\n\n**Acceptance Criteria:**\n- [ ] `py_compile` succeeds on all four touched source files.\n- [ ] `import app` succeeds (no import-time errors).\n- [ ] Full pytest suite passes (store + sidebar + page tests, no regressions).\n- [ ] Headless Streamlit health endpoint returns ok/true.\n- [ ] `git status` is clean (all committed).\n\n**Verify:**\n```\nconda run -n tmchien python -m py_compile core/store.py core/vocab/sidebar.py core/vocab/shared.py core/vocab/page.py && \\\nconda run -n tmchien python -c \"import app\" && \\\nconda run -n tmchien python -m pytest tests/test_store_vocab.py tests/test_vocab_sidebar.py tests/test_vocab_page.py -v\n```\nThen headless smoke:\n```\nconda run -n tmchien streamlit run app.py --server.headless true & echo $! > /tmp/st.pid\nsleep 6 && curl -s http://localhost:8501/_stcore/health; kill $(cat /tmp/st.pid)\n```\nExpected: `py_compile` no output; `import app` no output; pytest all PASS; curl prints `ok`/`true`.\n\n```json:metadata\n{\"files\": [\"core/store.py\", \"core/vocab/sidebar.py\", \"core/vocab/shared.py\", \"core/vocab/page.py\"], \"verifyCommand\": \"conda run -n tmchien python -m py_compile core/store.py core/vocab/sidebar.py core/vocab/shared.py core/vocab/page.py && conda run -n tmchien python -c \\\"import app\\\" && conda run -n tmchien python -m pytest tests/test_store_vocab.py tests/test_vocab_sidebar.py tests/test_vocab_page.py -v\", \"acceptanceCriteria\": [\"py_compile succeeds on all 4 source files\", \"import app succeeds\", \"full pytest suite passes (store+sidebar+page, no regressions)\", \"headless Streamlit /_stcore/health returns ok/true\", \"git status clean\"], \"modelTier\": \"standard\"}\n```"
     }
   ],
-  "lastUpdated": "2026-07-21T00:00:00Z"
+  "lastUpdated": "2026-07-21T09:30:00Z"
 }
